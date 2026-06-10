@@ -6,6 +6,10 @@ Jarvis v0.1 separates the shared brain from future device agents.
 
 The FastAPI backend owns durable memory, projects, decisions, tasks, knowledge, and Codex handoffs. SQLite is used locally through SQLAlchemy so the storage layer can move to a networked database later without changing the application services.
 
+## Model Configuration
+
+Jarvis supports two configurable OpenAI model names. `OPENAI_MODEL` is the everyday chat model used by the current chat path. `OPENAI_RESEARCH_MODEL` is reserved for v0.2 workflows that need web search, research, or deeper synthesis. The current chat behavior does not use the research model yet.
+
 ## Agents
 
 - `JarvisAgent` handles chat, planning, memory writes, and future knowledge extraction.

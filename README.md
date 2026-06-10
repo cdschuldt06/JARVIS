@@ -41,6 +41,8 @@ Update `.env`:
 OPENAI_API_KEY=your_key_here
 DATABASE_URL=sqlite:///./data/jarvis.db
 APP_ENV=development
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_RESEARCH_MODEL=gpt-5.5
 ```
 
 Run the API:
@@ -82,6 +84,10 @@ The web app expects the backend at `http://localhost:8000` by default.
 In the web UI, the dashboard has a persistent Current Project selector near the top of the app. Chat messages, tasks, decisions, and Codex handoffs use that shared selected project. When no project is selected, new records are stored with `project_id = null`.
 
 The Memory, Tasks, and Handoffs views show records for the Current Project. The Projects list remains global so the user can see available project containers.
+
+## Model Configuration
+
+`OPENAI_MODEL` is the default everyday chat model used by Jarvis v0.1. `OPENAI_RESEARCH_MODEL` is reserved for v0.2 web search, research, and synthesis workflows. Current chat behavior still uses `OPENAI_MODEL`.
 
 ## Safety
 

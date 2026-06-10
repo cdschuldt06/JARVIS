@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str = Field(default="sqlite:///./data/jarvis.db", alias="DATABASE_URL")
     openai_api_key: str = Field(alias="OPENAI_API_KEY")
     openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
+    openai_research_model: str = Field(default="gpt-5.5", alias="OPENAI_RESEARCH_MODEL")
     cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
 
     @field_validator("openai_api_key")
@@ -18,6 +19,13 @@ class Settings(BaseSettings):
     def validate_openai_api_key(cls, value: str) -> str:
         if not value or value.strip() == "":
             raise ValueError("OPENAI_API_KEY is required. Add it to your .env file.")
+        return value
+
+    @field_validator("openai_model", "openai_research_model")
+    @classmethod
+    def validate_model_name(cls, value: str) -> str:
+        if not value or value.strip() == "":
+            raise ValueError("OpenAI model names must not be empty.")
         return value
 
     @property
