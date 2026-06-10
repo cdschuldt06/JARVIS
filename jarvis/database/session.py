@@ -2,6 +2,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from jarvis.core.config import get_settings
@@ -34,3 +35,18 @@ def init_db() -> None:
     from jarvis.database import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _apply_sqlite_schema_updates()
+
+
+def _apply_sqlite_schema_updates() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    inspector = inspect(engine)
+    if "conversation_messages" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("conversation_messages")}
+    if "project_id" not in columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE conversation_messages ADD COLUMN project_id INTEGER REFERENCES projects(id)"))

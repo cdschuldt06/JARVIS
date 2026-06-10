@@ -15,7 +15,13 @@ Jarvis prepares context. Codex builds from explicit briefs.
 
 ## Memory And Knowledge
 
-Conversation history is stored as raw messages. Decisions are also written into the knowledge table so future retrieval can use distilled project facts instead of scanning every message.
+Conversation history is stored as raw messages. `conversation_id` groups a chat session or thread, so Jarvis can keep a back-and-forth together even when it is not tied to a project. `project_id` optionally scopes a message to a project, so project memory can include relevant chat history without losing session grouping.
+
+The dashboard exposes this with a persistent Current Project selector. Chat messages, tasks, decisions, and Codex handoffs use the shared selected project. For chat, the selected project is sent to `POST /chat` as `project_id`; the current `conversation_id` still threads the chat session.
+
+Project-scoped dashboard sections display records for the Current Project. The project list itself remains global because it is the user's project index.
+
+Decisions are also written into the knowledge table so future retrieval can use distilled project facts instead of scanning every message.
 
 ## Voice
 

@@ -41,7 +41,7 @@ class HandoffService:
         project_goals = project.goals if project else "No explicit project goals stored yet."
         project_description = project.description if project else "No project description stored yet."
         decision_lines = "\n".join(f"- {d.title}: {d.details} Reasoning: {d.reasoning}" for d in decisions) or "- None recorded."
-        task_lines = "\n".join(f"- [{t.status}] {t.title} ({t.priority}, assigned to {t.assigned_agent})" for t in tasks) or "- None recorded."
+        task_lines = "\n".join(f"- [{t.status.value}] {t.title} ({t.priority.value}, assigned to {t.assigned_agent})" for t in tasks) or "- None recorded."
 
         return f"""# Codex Implementation Brief
 

@@ -43,7 +43,10 @@ class ConversationMessage(Base):
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     input_mode: Mapped[str] = mapped_column(String(20), default="text")
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    project: Mapped["Project | None"] = relationship(back_populates="conversation_messages")
 
 
 class Project(Base):
@@ -60,6 +63,7 @@ class Project(Base):
     decisions: Mapped[list["Decision"]] = relationship(back_populates="project")
     tasks: Mapped[list["Task"]] = relationship(back_populates="project")
     handoffs: Mapped[list["CodexHandoff"]] = relationship(back_populates="project")
+    conversation_messages: Mapped[list[ConversationMessage]] = relationship(back_populates="project")
 
 
 class Decision(Base):

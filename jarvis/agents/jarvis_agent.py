@@ -19,13 +19,25 @@ class JarvisAgent(Agent):
         self.memory = MemoryService(db)
         self.llm = llm or OpenAIClient()
 
-    def chat(self, user_message: str, conversation_id: str | None = None, input_mode: str = "text") -> tuple[str, str]:
-        user_record = self.memory.add_message("user", user_message, conversation_id=conversation_id, input_mode=input_mode)
+    def chat(
+        self,
+        user_message: str,
+        conversation_id: str | None = None,
+        input_mode: str = "text",
+        project_id: int | None = None,
+    ) -> tuple[str, str]:
+        user_record = self.memory.add_message(
+            "user",
+            user_message,
+            conversation_id=conversation_id,
+            input_mode=input_mode,
+            project_id=project_id,
+        )
         history = self.memory.conversation_messages(user_record.conversation_id)
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         messages.extend({"role": item.role, "content": item.content} for item in history)
         response_text = self.llm.chat(messages)
-        self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id)
+        self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
         return user_record.conversation_id, response_text
 
     def describe(self) -> dict[str, object]:

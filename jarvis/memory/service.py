@@ -11,12 +11,20 @@ class MemoryService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def add_message(self, role: str, content: str, conversation_id: str | None = None, input_mode: str = "text") -> ConversationMessage:
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        conversation_id: str | None = None,
+        input_mode: str = "text",
+        project_id: int | None = None,
+    ) -> ConversationMessage:
         message = ConversationMessage(
             conversation_id=conversation_id or str(uuid4()),
             role=role,
             content=content,
             input_mode=input_mode,
+            project_id=project_id,
         )
         self.db.add(message)
         self.db.commit()

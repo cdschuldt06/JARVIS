@@ -9,6 +9,7 @@ from jarvis.database.models import HandoffStatus, ProjectStatus, TaskPriority, T
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     conversation_id: str | None = None
+    project_id: int | None = None
     input_mode: Literal["text", "voice"] = "text"
 
 
@@ -25,6 +26,7 @@ class MessageRead(BaseModel):
     role: str
     content: str
     input_mode: str
+    project_id: int | None
     created_at: datetime
 
 

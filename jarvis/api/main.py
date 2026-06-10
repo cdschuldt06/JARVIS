@@ -51,6 +51,7 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         payload.message,
         conversation_id=payload.conversation_id,
         input_mode=payload.input_mode,
+        project_id=payload.project_id,
     )
     return ChatResponse(conversation_id=conversation_id, response=response)
 

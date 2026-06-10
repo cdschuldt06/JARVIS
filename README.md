@@ -75,6 +75,14 @@ The web app expects the backend at `http://localhost:8000` by default.
 - `GET /handoffs`
 - `POST /handoffs`
 
+## Memory Model Notes
+
+`conversation_id` groups chat messages into a session. `project_id` is optional and scopes a chat message to a project. Keep both: a conversation can remain a coherent chat thread while also contributing memory to a specific project.
+
+In the web UI, the dashboard has a persistent Current Project selector near the top of the app. Chat messages, tasks, decisions, and Codex handoffs use that shared selected project. When no project is selected, new records are stored with `project_id = null`.
+
+The Memory, Tasks, and Handoffs views show records for the Current Project. The Projects list remains global so the user can see available project containers.
+
 ## Safety
 
 Jarvis v0.1 does not execute computer-control actions, terminal commands, trading, email sending, GitHub writes, or local file edits. It only includes a safety registry so future tools can declare risk level and confirmation requirements before they are enabled.
