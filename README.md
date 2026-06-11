@@ -1,6 +1,6 @@
-# Jarvis v0.1
+# Jarvis
 
-Jarvis is a personal AI operating system foundation. In v0.1, Jarvis is the planner and memory layer: it chats with an OpenAI model, stores durable project context, manages tasks and decisions, and generates structured implementation briefs for Codex.
+Jarvis is a personal AI operating system foundation. It acts as a unified assistant across chat, project memory, web research, voice, tasks, and structured implementation briefs for Codex.
 
 ## Architecture
 
@@ -101,6 +101,16 @@ Jarvis retrieves project-scoped memory before normal chat responses using determ
 Jarvis includes browser-based voice controls in the Chat tab. Push-to-talk uses browser `SpeechRecognition` when available and falls back cleanly to typed chat when unsupported. Spoken responses use browser `SpeechSynthesis` only when the user enables `Speak responses`.
 
 This MVP does not implement wake-word detection, backend audio transcription, OpenAI audio APIs, or device control. The backend voice abstraction remains the future integration boundary for production speech-to-text and text-to-speech providers.
+
+## v0.4 Unified Assistant
+
+Jarvis now routes normal chat messages through a deterministic `ToolRouter`. The user can stay in the Chat tab and Jarvis decides whether to answer directly, retrieve project memory, run web research, save an explicitly requested research result, or generate an explicitly requested Codex implementation brief.
+
+Routing is rule-based for now. Requests containing terms like `research`, `latest`, `news`, `today`, or `current` invoke the research tool and use `OPENAI_RESEARCH_MODEL`. Requests such as `Codex brief` or `implementation brief` generate a handoff for the Current Project. Normal project chat uses `OPENAI_MODEL` and project-scoped memory retrieval.
+
+Memory retrieval remains deterministic and project-scoped. Ranking now weights title matches most heavily, supports decisions, saved research, and tasks, and keeps vector databases and embeddings out of scope for this version.
+
+The Chat tab includes a Tool Activity panel showing whether Jarvis retrieved memory, performed research, generated a handoff, or saved research. Research and handoff generation still require a Current Project so Jarvis does not accidentally use global context.
 
 ## Safety
 

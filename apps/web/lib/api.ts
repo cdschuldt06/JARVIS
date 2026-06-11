@@ -41,6 +41,17 @@ export type ResearchResult = {
   sources: string[];
 };
 
+export type ToolActivity = {
+  actions: string[];
+  model: string;
+  memory_retrieved: boolean;
+  research_performed: boolean;
+  handoff_generated: boolean;
+  research_saved: boolean;
+  memory_counts: { decisions: number; research: number; tasks: number } | null;
+  sources: string[] | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -61,7 +72,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   chat: (message: string, conversationId?: string, projectId?: number | null, inputMode: "text" | "voice" = "text") =>
-    request<{ conversation_id: string; response: string }>("/chat", {
+    request<{ conversation_id: string; response: string; activity: ToolActivity | null }>("/chat", {
       method: "POST",
       body: JSON.stringify({ message, conversation_id: conversationId, project_id: projectId ?? null, input_mode: inputMode }),
     }),

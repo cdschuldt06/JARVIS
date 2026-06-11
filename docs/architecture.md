@@ -1,6 +1,6 @@
-# Jarvis v0.2 Architecture
+# Jarvis Architecture
 
-Jarvis v0.2 separates the shared brain from future device agents and adds Awareness through memory retrieval and web research.
+Jarvis separates the shared brain from future device agents and layers memory, awareness, voice, and tool routing into one assistant experience.
 
 ## Shared Brain
 
@@ -8,13 +8,27 @@ The FastAPI backend owns durable memory, projects, decisions, tasks, knowledge, 
 
 ## Model Configuration
 
-Jarvis supports two configurable OpenAI model names. `OPENAI_MODEL` is the everyday chat model used by the current chat path. `OPENAI_RESEARCH_MODEL` is reserved for v0.2 workflows that need web search, research, or deeper synthesis. The current chat behavior does not use the research model yet.
+Jarvis supports two configurable OpenAI model names. `OPENAI_MODEL` is the everyday chat model used for normal chat and memory-grounded responses. `OPENAI_RESEARCH_MODEL` is used for web search, research, and synthesis workflows.
 
 ## Awareness
 
 Jarvis v0.2 adds a deterministic retrieval layer before chat responses. It retrieves relevant project goals, decisions, knowledge items, and tasks with keyword and metadata matching. This intentionally avoids embeddings, vector databases, and external RAG frameworks.
 
 Research is a dedicated path that uses the OpenAI Responses API with hosted web search and `OPENAI_RESEARCH_MODEL`. Research results can be saved as `KnowledgeItem` rows with `kind="research"` and project association. Codex handoffs include stored research as implementation context.
+
+## Unified Assistant Routing
+
+Jarvis v0.4 routes `POST /chat` through `UnifiedAssistant` and `ToolRouter`. The frontend still sends one chat request, but the backend deterministically chooses the tools to use:
+
+- normal chat uses `OPENAI_MODEL`
+- project chat retrieves project-scoped memory before responding
+- research-intent chat uses `OPENAI_RESEARCH_MODEL` and the Responses API web search tool
+- explicit Codex brief requests generate a project-scoped handoff
+- explicit save-research requests store the most recent research-style assistant response as a `KnowledgeItem`
+
+The router does not use an LLM. Rules are intentionally simple and based on phrases such as `research`, `latest`, `news`, `today`, `current`, `Codex brief`, and `implementation brief`.
+
+Memory retrieval remains SQL and keyword based. Ranking weights title matches highest, includes decision details, saved research, and tasks, and never leaves the selected `project_id` scope. Research and handoff generation require a Current Project to avoid accidental global context.
 
 ## Agents
 

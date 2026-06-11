@@ -2,12 +2,12 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
-import { Brain, ClipboardList, FileText, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
-import { Handoff, Memory, Project, ResearchResult, Task, api } from "@/lib/api";
+import { Activity, Brain, ClipboardList, FileText, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
+import { Handoff, Memory, Project, ResearchResult, Task, ToolActivity, api } from "@/lib/api";
 import { BrowserSpeechRecognition, ChatInputMode, createSpeechRecognition, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, speakText } from "@/lib/voice";
 
 type View = "chat" | "research" | "tasks" | "memory" | "handoffs";
-type ChatLine = { role: "user" | "assistant"; content: string };
+type ChatLine = { role: "user" | "assistant"; content: string; activity?: ToolActivity | null };
 
 const views: Array<{ id: View; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -169,6 +169,7 @@ function ChatPanel({
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [message, setMessage] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
+  const [lastActivity, setLastActivity] = useState<ToolActivity | null>(null);
   const [speechRecognitionAvailable, setSpeechRecognitionAvailable] = useState(false);
   const [speechSynthesisAvailable, setSpeechSynthesisAvailable] = useState(false);
   const [listening, setListening] = useState(false);
@@ -195,7 +196,8 @@ function ChatPanel({
     try {
       const result = await api.chat(trimmed, conversationId, currentProjectId, inputMode);
       setConversationId(result.conversation_id);
-      setLines((current) => [...current, { role: "assistant", content: result.response }]);
+      setLastActivity(result.activity);
+      setLines((current) => [...current, { role: "assistant", content: result.response, activity: result.activity }]);
       if (speakResponses) speakText(result.response);
       await refreshAll();
     } finally {
@@ -242,6 +244,7 @@ function ChatPanel({
     <div className="grid min-h-[620px] grid-rows-[auto_1fr_auto] rounded-md border border-line bg-white">
       <div className="border-b border-line px-4 pb-4 pt-1">
         <div className="pt-3 text-sm text-ink/65">Current Project: <span className="font-medium text-ink">{currentProjectName ?? "None"}</span></div>
+        <ToolActivityPanel activity={lastActivity} />
         <label className="mt-3 flex items-center gap-2 text-sm text-ink/70">
           <input className="h-4 w-4" type="checkbox" checked={speakResponses} disabled={!speechSynthesisAvailable} onChange={(event) => setSpeakResponses(event.target.checked)} />
           <Volume2 size={16} />
@@ -254,7 +257,8 @@ function ChatPanel({
         {lines.length === 0 ? <div className="text-sm text-ink/55">No messages yet.</div> : null}
         {lines.map((line, index) => (
           <div key={`${line.role}-${index}`} className={`max-w-3xl rounded-md px-3 py-2 text-sm ${line.role === "user" ? "ml-auto bg-pine text-white" : "bg-field text-ink"}`}>
-            {line.content}
+            <div className="whitespace-pre-wrap">{line.content}</div>
+            {line.role === "assistant" && line.activity ? <MessageActivitySummary activity={line.activity} /> : null}
           </div>
         ))}
       </div>
@@ -280,6 +284,45 @@ function ChatPanel({
       </form>
     </div>
   );
+}
+
+function ToolActivityPanel({ activity }: { activity: ToolActivity | null }) {
+  const memoryCount = activity?.memory_counts
+    ? activity.memory_counts.decisions + activity.memory_counts.research + activity.memory_counts.tasks
+    : 0;
+  return (
+    <div className="mt-3 rounded-md border border-line bg-field p-3">
+      <div className="flex items-center gap-2 text-xs font-medium uppercase text-ink/55">
+        <Activity size={14} />
+        Tool Activity
+      </div>
+      <div className="mt-2 grid gap-2 text-sm text-ink/70 sm:grid-cols-3">
+        <ActivityItem label="Memory Retrieved" active={Boolean(activity?.memory_retrieved)} detail={activity?.memory_retrieved ? `${memoryCount} items` : "No"} />
+        <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_performed ? "Yes" : "No"} />
+        <ActivityItem label="Handoff Generated" active={Boolean(activity?.handoff_generated)} detail={activity?.handoff_generated ? "Yes" : "No"} />
+      </div>
+      {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Research saved to the current project.</div> : null}
+    </div>
+  );
+}
+
+function ActivityItem({ label, active, detail }: { label: string; active: boolean; detail: string }) {
+  return (
+    <div className="rounded-md border border-line bg-white px-3 py-2">
+      <div className="text-xs text-ink/55">{label}</div>
+      <div className={`mt-1 font-medium ${active ? "text-pine" : "text-ink/50"}`}>{detail}</div>
+    </div>
+  );
+}
+
+function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
+  const labels = [];
+  if (activity.memory_retrieved) labels.push("memory");
+  if (activity.research_performed) labels.push("research");
+  if (activity.handoff_generated) labels.push("handoff");
+  if (activity.research_saved) labels.push("saved research");
+  if (labels.length === 0) return null;
+  return <div className="mt-2 border-t border-line pt-2 text-xs uppercase text-ink/45">Used {labels.join(", ")}</div>;
 }
 
 function ResearchPanel({

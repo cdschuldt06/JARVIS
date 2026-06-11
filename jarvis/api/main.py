@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from jarvis.agents.jarvis_agent import JarvisAgent
+from jarvis.agents.unified_assistant import UnifiedAssistant
 from jarvis.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -52,13 +52,13 @@ def health() -> dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
-    conversation_id, response = JarvisAgent(db).chat(
+    result = UnifiedAssistant(db).chat(
         payload.message,
         conversation_id=payload.conversation_id,
         input_mode=payload.input_mode,
         project_id=payload.project_id,
     )
-    return ChatResponse(conversation_id=conversation_id, response=response)
+    return ChatResponse(conversation_id=result.conversation_id, response=result.response, activity=result.activity.__dict__)
 
 
 @app.get("/tasks", response_model=list[TaskRead])

@@ -36,9 +36,9 @@ class MemoryRetrievalService:
     def retrieve(self, query: str, project_id: int | None = None, limit: int = 5) -> RetrievedMemory:
         terms = self._terms(query)
         project = self.db.get(Project, project_id) if project_id is not None else None
-        decisions = self._ranked(self._project_rows(select(Decision), Decision.project_id, project_id), terms, ("title", "details", "reasoning"), limit)
-        knowledge = self._ranked(self._project_rows(select(KnowledgeItem), KnowledgeItem.project_id, project_id), terms, ("title", "body", "kind"), limit)
-        tasks = self._ranked(self._project_rows(select(Task), Task.project_id, project_id), terms, ("title", "description", "assigned_agent", "status", "priority"), limit)
+        decisions = self._ranked(self._project_rows(select(Decision), Decision.project_id, project_id), terms, query, {"title": 5, "details": 3, "reasoning": 2}, limit)
+        knowledge = self._ranked(self._project_rows(select(KnowledgeItem), KnowledgeItem.project_id, project_id), terms, query, {"title": 5, "body": 3, "kind": 1}, limit)
+        tasks = self._ranked(self._project_rows(select(Task), Task.project_id, project_id), terms, query, {"title": 5, "description": 3, "assigned_agent": 1, "status": 1, "priority": 1}, limit)
         return RetrievedMemory(project=project, decisions=decisions, knowledge=knowledge, tasks=tasks)
 
     def _project_rows(self, stmt, project_column, project_id: int | None):
@@ -46,11 +46,26 @@ class MemoryRetrievalService:
             stmt = stmt.where(project_column == project_id)
         return self.db.scalars(stmt).all()
 
-    def _ranked(self, rows: list, terms: set[str], fields: tuple[str, ...], limit: int) -> list:
+    def _ranked(self, rows: list, terms: set[str], query: str, field_weights: dict[str, int], limit: int) -> list:
         scored = []
+        phrase = query.strip().lower()
         for row in rows:
-            haystack = " ".join(str(getattr(row, field, "") or "") for field in fields).lower()
-            score = sum(1 for term in terms if term in haystack)
+            score = 0
+            for field, weight in field_weights.items():
+                value = str(getattr(row, field, "") or "").lower()
+                if phrase and phrase in value:
+                    score += weight * 4
+                for term in terms:
+                    if term == value:
+                        score += weight * 3
+                    elif value.startswith(term):
+                        score += weight * 2
+                    elif term in value:
+                        score += weight
+            if isinstance(row, KnowledgeItem) and row.kind == "research":
+                score += 1
+            if isinstance(row, Decision):
+                score += 1
             if score > 0 or not terms:
                 scored.append((score, row))
         scored.sort(key=lambda item: (item[0], getattr(item[1], "created_at", None)), reverse=True)

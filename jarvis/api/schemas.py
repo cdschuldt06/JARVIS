@@ -16,6 +16,18 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     conversation_id: str
     response: str
+    activity: "ToolActivityRead | None" = None
+
+
+class ToolActivityRead(BaseModel):
+    actions: list[str] = []
+    model: str = ""
+    memory_retrieved: bool = False
+    research_performed: bool = False
+    handoff_generated: bool = False
+    research_saved: bool = False
+    memory_counts: dict[str, int] | None = None
+    sources: list[str] | None = None
 
 
 class MessageRead(BaseModel):
