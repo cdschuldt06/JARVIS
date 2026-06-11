@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from jarvis.database.models import Decision, KnowledgeItem, Project, Task
+from jarvis.database.models import Decision, KnowledgeItem, Project, RepositoryKnowledge, Task
+from jarvis.repositories.service import RepositoryService
 
 
 @dataclass(frozen=True)
@@ -13,18 +14,37 @@ class RetrievedMemory:
     decisions: list[Decision]
     knowledge: list[KnowledgeItem]
     tasks: list[Task]
+    repository_knowledge: list[RepositoryKnowledge]
 
     def to_prompt_context(self) -> str:
-        sections = ["Relevant Jarvis memory:"]
+        sections = [
+            "Retrieved Jarvis context:",
+            (
+                "Grounding rules:\n"
+                "- Current Repository Implementation is indexed from the actual registered repository files.\n"
+                "- Project Memory / Decisions are stored planning context, not proof that code exists.\n"
+                "- Research / Future Plans may describe options or intended work, not current implementation.\n"
+                "- For repository summaries or architecture answers, build the architecture summary from Current Repository Implementation only.\n"
+                "- If project memory, decisions, tasks, research, or future plans are relevant, put them in dedicated labeled sections and do not blend them into the architecture summary.\n"
+                "- For repository risk analysis, identify Current Repository Risks from Current Repository Implementation before using memory or research.\n"
+                "- Research-based or planned-feature risks belong only in a separate Future Feature Risks section."
+            ),
+        ]
         if self.project:
-            sections.append(f"Project: {self.project.name}\nGoals: {self.project.goals or 'None recorded.'}\nDescription: {self.project.description or 'None recorded.'}")
+            sections.append(f"Project Context:\nProject: {self.project.name}\nGoals: {self.project.goals or 'None recorded.'}\nDescription: {self.project.description or 'None recorded.'}")
+        if self.repository_knowledge:
+            sections.append("Current Repository Implementation:\n" + "\n".join(f"- [{item.kind}] {item.file_path}: {item.summary}" for item in self.repository_knowledge))
         if self.decisions:
-            sections.append("Decisions:\n" + "\n".join(f"- {item.title}: {item.details} Reasoning: {item.reasoning}" for item in self.decisions))
-        if self.knowledge:
-            sections.append("Knowledge:\n" + "\n".join(f"- [{item.kind}] {item.title}: {item.body}" for item in self.knowledge))
+            sections.append("Project Memory / Decisions:\n" + "\n".join(f"- {item.title}: {item.details} Reasoning: {item.reasoning}" for item in self.decisions))
+        research_items = [item for item in self.knowledge if item.kind == "research"]
+        other_knowledge = [item for item in self.knowledge if item.kind != "research"]
+        if research_items:
+            sections.append("Research / Future Plans:\n" + "\n".join(f"- {item.title}: {item.body}" for item in research_items))
+        if other_knowledge:
+            sections.append("Other Project Knowledge:\n" + "\n".join(f"- [{item.kind}] {item.title}: {item.body}" for item in other_knowledge))
         if self.tasks:
             sections.append("Tasks:\n" + "\n".join(f"- [{item.status.value}] {item.title}: {item.description}" for item in self.tasks))
-        if len(sections) == 1:
+        if len(sections) == 2:
             sections.append("No relevant stored memory found.")
         return "\n\n".join(sections)
 
@@ -39,7 +59,8 @@ class MemoryRetrievalService:
         decisions = self._ranked(self._project_rows(select(Decision), Decision.project_id, project_id), terms, query, {"title": 5, "details": 3, "reasoning": 2}, limit)
         knowledge = self._ranked(self._project_rows(select(KnowledgeItem), KnowledgeItem.project_id, project_id), terms, query, {"title": 5, "body": 3, "kind": 1}, limit)
         tasks = self._ranked(self._project_rows(select(Task), Task.project_id, project_id), terms, query, {"title": 5, "description": 3, "assigned_agent": 1, "status": 1, "priority": 1}, limit)
-        return RetrievedMemory(project=project, decisions=decisions, knowledge=knowledge, tasks=tasks)
+        repository_knowledge = RepositoryService(self.db).retrieve(query, project_id=project_id, limit=limit)
+        return RetrievedMemory(project=project, decisions=decisions, knowledge=knowledge, tasks=tasks, repository_knowledge=repository_knowledge)
 
     def _project_rows(self, stmt, project_column, project_id: int | None):
         if project_id is not None:

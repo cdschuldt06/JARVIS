@@ -9,6 +9,7 @@ class ToolAction(str, Enum):
     RESEARCH = "RESEARCH"
     HANDOFF_GENERATION = "HANDOFF_GENERATION"
     SAVE_RESEARCH = "SAVE_RESEARCH"
+    REPOSITORY_RETRIEVAL = "REPOSITORY_RETRIEVAL"
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,37 @@ class ToolRouter:
         "websocket",
     )
     save_research_terms = ("save that research", "save this research", "store that research", "store this research")
+    repository_terms = (
+        "architecture",
+        "code",
+        "component",
+        "database",
+        "explain",
+        "file",
+        "frontend",
+        "github",
+        "importer",
+        "repository",
+        "repo",
+        "risk",
+        "service",
+        "structure",
+        "work on next",
+        "work on tonight",
+    )
+    project_context_terms = (
+        "for jarvis",
+        "jarvis",
+        "our project",
+        "project",
+        "how does this affect",
+        "how does this relate",
+        "relevance",
+        "relevant to",
+        "what should i work on",
+        "work on next",
+        "work on tonight",
+    )
 
     def route(self, user_request: str, project_id: int | None = None) -> ToolRoute:
         text = self._normalize(user_request)
@@ -62,10 +94,15 @@ class ToolRouter:
             model_purpose = "research" if ToolAction.RESEARCH in actions else "chat"
             return ToolRoute(tuple(dict.fromkeys(actions)), model_purpose)
 
+        uses_research = self._contains_any(text, self.research_terms)
+        uses_project_context = self._contains_any(text, self.project_context_terms)
+
         actions.append(ToolAction.CHAT)
-        if project_id is not None:
+        if project_id is not None and (not uses_research or uses_project_context):
             actions.append(ToolAction.MEMORY_RETRIEVAL)
-        if self._contains_any(text, self.research_terms):
+            if self._contains_any(text, self.repository_terms):
+                actions.append(ToolAction.REPOSITORY_RETRIEVAL)
+        if uses_research:
             actions.append(ToolAction.RESEARCH)
 
         model_purpose = "research" if ToolAction.RESEARCH in actions else "chat"

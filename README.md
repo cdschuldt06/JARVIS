@@ -77,6 +77,12 @@ The web app expects the backend at `http://localhost:8000` by default.
 - `POST /research`
 - `GET /research`
 - `POST /research/save`
+- `GET /repositories`
+- `POST /repositories`
+- `POST /repositories/{repository_id}/index`
+- `GET /repositories/{repository_id}/knowledge`
+- `GET /repositories/{repository_id}/summary`
+- `GET /project-analysis`
 - `GET /handoffs`
 - `POST /handoffs`
 
@@ -111,6 +117,14 @@ Routing is rule-based for now. Requests containing terms like `research`, `lates
 Memory retrieval remains deterministic and project-scoped. Ranking now weights title matches most heavily, supports decisions, saved research, and tasks, and keeps vector databases and embeddings out of scope for this version.
 
 The Chat tab includes a Tool Activity panel showing whether Jarvis retrieved memory, performed research, generated a handoff, or saved research. Research and handoff generation still require a Current Project so Jarvis does not accidentally use global context.
+
+## v0.5 GitHub Awareness
+
+Jarvis can register local Git/software repositories and build lightweight read-only repository awareness. Indexing stores folder structure, important files, manifests, entry points, configuration, schema files, and obvious service/provider/importer components as `RepositoryKnowledge` summaries.
+
+Repository knowledge becomes part of project-scoped memory retrieval, so questions like "Explain the importer", "Summarize this repository", or "What should I work on next?" can use tasks, decisions, research, and indexed code context together. The Repositories tab supports registering repositories, re-indexing them, viewing summaries, and reviewing deterministic project analysis findings.
+
+This version does not edit files, commit, push, create branches, open pull requests, or perform GitHub writes. Repository access is read-only and intentionally lightweight: no embeddings, vector database, or full-code prompt stuffing.
 
 ## Safety
 

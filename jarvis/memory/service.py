@@ -40,6 +40,48 @@ class MemoryService:
         )
         return list(reversed(self.db.scalars(stmt).all()))
 
+    def full_conversation_messages(self, conversation_id: str, project_id: int | None = None) -> list[ConversationMessage]:
+        stmt = (
+            select(ConversationMessage)
+            .where(ConversationMessage.conversation_id == conversation_id)
+            .order_by(ConversationMessage.created_at)
+        )
+        if project_id is None:
+            stmt = stmt.where(ConversationMessage.project_id.is_(None))
+        else:
+            stmt = stmt.where(ConversationMessage.project_id == project_id)
+        return self.db.scalars(stmt).all()
+
+    def list_conversation_sessions(self, project_id: int | None = None) -> list[dict[str, object]]:
+        stmt = select(ConversationMessage)
+        if project_id is None:
+            stmt = stmt.where(ConversationMessage.project_id.is_(None))
+        else:
+            stmt = stmt.where(ConversationMessage.project_id == project_id)
+        messages = self.db.scalars(stmt.order_by(ConversationMessage.created_at)).all()
+
+        sessions: dict[str, dict[str, object]] = {}
+        for message in messages:
+            session = sessions.setdefault(
+                message.conversation_id,
+                {
+                    "conversation_id": message.conversation_id,
+                    "project_id": message.project_id,
+                    "label": self._conversation_fallback_label(message),
+                    "last_activity_at": message.created_at,
+                    "has_user_label": False,
+                },
+            )
+            if message.role == "user" and not session["has_user_label"]:
+                session["label"] = self._conversation_label(message.content, message)
+                session["has_user_label"] = True
+            session["last_activity_at"] = message.created_at
+
+        ordered = sorted(sessions.values(), key=lambda item: item["last_activity_at"], reverse=True)
+        for session in ordered:
+            session.pop("has_user_label", None)
+        return ordered
+
     def recent_messages(self, limit: int = 50) -> list[ConversationMessage]:
         stmt = select(ConversationMessage).order_by(desc(ConversationMessage.created_at)).limit(limit)
         return self.db.scalars(stmt).all()
@@ -80,3 +122,12 @@ class MemoryService:
 
     def list_knowledge(self) -> list[KnowledgeItem]:
         return self.db.scalars(select(KnowledgeItem).order_by(desc(KnowledgeItem.created_at))).all()
+
+    def _conversation_label(self, content: str, message: ConversationMessage) -> str:
+        cleaned = " ".join(content.strip().split())
+        if cleaned:
+            return cleaned[:80]
+        return self._conversation_fallback_label(message)
+
+    def _conversation_fallback_label(self, message: ConversationMessage) -> str:
+        return f"Conversation {message.created_at.strftime('%Y-%m-%d %I:%M %p').lstrip('0')}"

@@ -2,12 +2,14 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
-import { Activity, Brain, ClipboardList, FileText, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
-import { Handoff, Memory, Project, ResearchResult, Task, ToolActivity, api } from "@/lib/api";
+import { Activity, Brain, ClipboardList, DollarSign, FileText, GitBranch, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
+import { ChatSession, Handoff, Memory, Project, Repository, RepositoryKnowledge, ResearchResult, Task, ToolActivity, UsageDashboard, api } from "@/lib/api";
 import { BrowserSpeechRecognition, ChatInputMode, createSpeechRecognition, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, speakText } from "@/lib/voice";
 
-type View = "chat" | "research" | "tasks" | "memory" | "handoffs";
+type View = "chat" | "research" | "tasks" | "memory" | "handoffs" | "repositories" | "usage";
 type ChatLine = { role: "user" | "assistant"; content: string; activity?: ToolActivity | null };
+const INITIAL_VISIBLE_CHAT_SESSIONS = 5;
+const CHAT_HISTORY_PAGE_SIZE = 5;
 
 const views: Array<{ id: View; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -15,6 +17,8 @@ const views: Array<{ id: View; label: string; icon: ComponentType<{ size?: numbe
   { id: "tasks", label: "Tasks", icon: ClipboardList },
   { id: "memory", label: "Memory", icon: Brain },
   { id: "handoffs", label: "Handoffs", icon: FileText },
+  { id: "repositories", label: "Repositories", icon: GitBranch },
+  { id: "usage", label: "Usage", icon: DollarSign },
 ];
 
 export default function Home() {
@@ -132,11 +136,15 @@ export default function Home() {
           </nav>
 
           <section className="min-w-0">
-            {activeView === "chat" ? <ChatPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} loading={loading} setLoading={setLoading} refreshAll={refreshAll} /> : null}
+            <div className={activeView === "chat" ? "block" : "hidden"}>
+              <ChatPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} loading={loading} setLoading={setLoading} refreshAll={refreshAll} />
+            </div>
             {activeView === "research" ? <ResearchPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "tasks" ? <TasksPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} tasks={tasks} refreshAll={refreshAll} /> : null}
             {activeView === "memory" ? <MemoryPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} projects={projects} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "handoffs" ? <HandoffsPanel currentProjectId={currentProjectId} handoffs={handoffs} refreshAll={refreshAll} /> : null}
+            {activeView === "repositories" ? <RepositoriesPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} /> : null}
+            {activeView === "usage" ? <UsagePanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} /> : null}
           </section>
         </div>
       </div>
@@ -171,6 +179,11 @@ function ChatPanel({
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [lastActivity, setLastActivity] = useState<ToolActivity | null>(null);
   const [requestStatus, setRequestStatus] = useState("");
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [historySearch, setHistorySearch] = useState("");
+  const [visibleSessionCount, setVisibleSessionCount] = useState(INITIAL_VISIBLE_CHAT_SESSIONS);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [sessionLoading, setSessionLoading] = useState(false);
   const [speechRecognitionAvailable, setSpeechRecognitionAvailable] = useState(false);
   const [speechSynthesisAvailable, setSpeechSynthesisAvailable] = useState(false);
   const [listening, setListening] = useState(false);
@@ -187,6 +200,63 @@ function ChatPanel({
     };
   }, []);
 
+  useEffect(() => {
+    setConversationId(undefined);
+    setLines([]);
+    setLastActivity(null);
+    setVisibleSessionCount(INITIAL_VISIBLE_CHAT_SESSIONS);
+    setHistoryExpanded(false);
+    void loadSessions();
+  }, [currentProjectId]);
+
+  const sortedSessions = useMemo(
+    () =>
+      [...sessions].sort(
+        (left, right) =>
+          new Date(right.last_activity_at).getTime() - new Date(left.last_activity_at).getTime(),
+      ),
+    [sessions],
+  );
+  const filteredSessions = useMemo(() => {
+    const query = historySearch.trim().toLowerCase();
+    if (!query) return sortedSessions;
+    return sortedSessions.filter((session) => session.label.toLowerCase().includes(query));
+  }, [historySearch, sortedSessions]);
+  const visibleSessions = filteredSessions.slice(0, visibleSessionCount);
+  const canShowMore = visibleSessionCount < filteredSessions.length;
+  const canShowLess = visibleSessionCount > INITIAL_VISIBLE_CHAT_SESSIONS;
+
+  async function loadSessions() {
+    setSessionLoading(true);
+    try {
+      setSessions(await api.listChatSessions(currentProjectId));
+    } finally {
+      setSessionLoading(false);
+    }
+  }
+
+  async function openConversation(nextConversationId: string) {
+    if (loading) return;
+    const messages = await api.getChatConversation(nextConversationId, currentProjectId);
+    setConversationId(nextConversationId);
+    setLastActivity(null);
+    setLines(
+      messages
+        .filter((item) => item.role === "user" || item.role === "assistant")
+        .map((item) => ({ role: item.role, content: item.content })),
+    );
+  }
+
+  function startNewChat() {
+    if (loading) return;
+    setConversationId(undefined);
+    setLines([]);
+    setLastActivity(null);
+    setMessage("");
+    setVoiceStatus("");
+    setRequestStatus("");
+  }
+
   async function sendMessage(outgoing: string, inputMode: ChatInputMode = "text") {
     if (!outgoing.trim() || loading) return;
     const trimmed = outgoing.trim();
@@ -202,6 +272,7 @@ function ChatPanel({
       setLines((current) => [...current, { role: "assistant", content: result.response, activity: result.activity }]);
       if (speakResponses) speakText(result.response);
       await refreshAll();
+      await loadSessions();
     } finally {
       setLoading(false);
       setRequestStatus("");
@@ -244,51 +315,141 @@ function ChatPanel({
   }
 
   return (
-    <div className="grid min-h-[620px] grid-rows-[auto_1fr_auto] rounded-md border border-line bg-white">
-      <div className="border-b border-line px-4 pb-4 pt-1">
-        <div className="pt-3 text-sm text-ink/65">Current Project: <span className="font-medium text-ink">{currentProjectName ?? "None"}</span></div>
-        <ToolActivityPanel activity={lastActivity} />
-        <label className="mt-3 flex items-center gap-2 text-sm text-ink/70">
-          <input className="h-4 w-4" type="checkbox" checked={speakResponses} disabled={!speechSynthesisAvailable} onChange={(event) => setSpeakResponses(event.target.checked)} />
-          <Volume2 size={16} />
-          Speak responses
-        </label>
-        {!speechRecognitionAvailable ? <p className="mt-2 text-sm text-ink/55">Voice input is not available in this browser. Typed chat still works.</p> : null}
-        {voiceStatus ? <p className="mt-2 text-sm text-ink/65">{voiceStatus}</p> : null}
-        {loading && requestStatus ? <p className="mt-2 text-sm font-medium text-pine">{requestStatus}</p> : null}
-      </div>
-      <div className="space-y-3 overflow-y-auto p-4">
-        {lines.length === 0 ? <div className="text-sm text-ink/55">No messages yet.</div> : null}
-        {loading && requestStatus ? (
-          <div className="max-w-3xl rounded-md bg-field px-3 py-2 text-sm font-medium text-pine">{requestStatus}</div>
-        ) : null}
-        {lines.map((line, index) => (
-          <div key={`${line.role}-${index}`} className={`max-w-3xl rounded-md px-3 py-2 text-sm ${line.role === "user" ? "ml-auto bg-pine text-white" : "bg-field text-ink"}`}>
-            <div className="whitespace-pre-wrap">{line.content}</div>
-            {line.role === "assistant" && line.activity ? <MessageActivitySummary activity={line.activity} /> : null}
+    <div className="space-y-4">
+      <div className="grid min-h-[620px] grid-rows-[auto_1fr_auto] rounded-md border border-line bg-white">
+        <div className="border-b border-line px-4 pb-4 pt-1">
+          <div className="flex flex-col gap-3 pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-ink/65">Current Project: <span className="font-medium text-ink">{currentProjectName ?? "None"}</span></div>
+            <button
+              className="inline-flex h-9 items-center justify-center rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+              type="button"
+              onClick={startNewChat}
+              disabled={loading}
+            >
+              New Chat
+            </button>
           </div>
-        ))}
+          <ToolActivityPanel activity={lastActivity} />
+          <label className="mt-3 flex items-center gap-2 text-sm text-ink/70">
+            <input className="h-4 w-4" type="checkbox" checked={speakResponses} disabled={!speechSynthesisAvailable} onChange={(event) => setSpeakResponses(event.target.checked)} />
+            <Volume2 size={16} />
+            Speak responses
+          </label>
+          {!speechRecognitionAvailable ? <p className="mt-2 text-sm text-ink/55">Voice input is not available in this browser. Typed chat still works.</p> : null}
+          {voiceStatus ? <p className="mt-2 text-sm text-ink/65">{voiceStatus}</p> : null}
+          {loading && requestStatus ? <p className="mt-2 text-sm font-medium text-pine">{requestStatus}</p> : null}
+        </div>
+        <div className="space-y-3 overflow-y-auto p-4">
+          {lines.length === 0 ? <div className="text-sm text-ink/55">No messages yet.</div> : null}
+          {loading && requestStatus ? (
+            <div className="max-w-3xl rounded-md bg-field px-3 py-2 text-sm font-medium text-pine">{requestStatus}</div>
+          ) : null}
+          {lines.map((line, index) => (
+            <div key={`${line.role}-${index}`} className={`max-w-3xl rounded-md px-3 py-2 text-sm ${line.role === "user" ? "ml-auto bg-pine text-white" : "bg-field text-ink"}`}>
+              <div className="whitespace-pre-wrap">{line.content}</div>
+              {line.role === "assistant" && line.activity ? <MessageActivitySummary activity={line.activity} /> : null}
+            </div>
+          ))}
+        </div>
+        <form onSubmit={submit} className="flex gap-2 border-t border-line p-3">
+          <textarea
+            className="min-h-11 flex-1 resize-none rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-pine"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="Message Jarvis"
+          />
+          <button
+            className={`inline-flex h-11 w-11 items-center justify-center rounded-md border border-line transition ${listening ? "bg-signal text-white" : "bg-white text-ink hover:border-pine"}`}
+            title={speechRecognitionAvailable ? "Push to talk" : "Voice input unavailable"}
+            type="button"
+            disabled={loading || !speechRecognitionAvailable}
+            onClick={startListening}
+          >
+            <Mic size={18} />
+          </button>
+          <button className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-pine text-white transition hover:bg-pine/90" title="Send" disabled={loading}>
+            <Send size={18} />
+          </button>
+        </form>
       </div>
-      <form onSubmit={submit} className="flex gap-2 border-t border-line p-3">
-        <textarea
-          className="min-h-11 flex-1 resize-none rounded-md border border-line px-3 py-2 text-sm outline-none focus:border-pine"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          placeholder="Message Jarvis"
-        />
-        <button
-          className={`inline-flex h-11 w-11 items-center justify-center rounded-md border border-line transition ${listening ? "bg-signal text-white" : "bg-white text-ink hover:border-pine"}`}
-          title={speechRecognitionAvailable ? "Push to talk" : "Voice input unavailable"}
-          type="button"
-          disabled={loading || !speechRecognitionAvailable}
-          onClick={startListening}
-        >
-          <Mic size={18} />
-        </button>
-        <button className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-pine text-white transition hover:bg-pine/90" title="Send" disabled={loading}>
-          <Send size={18} />
-        </button>
-      </form>
+
+      <section className="rounded-md border border-line bg-white p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Chat History</h2>
+            <p className="mt-1 text-sm text-ink/55">Project: {currentProjectName ?? "None"}</p>
+          </div>
+          <button className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35" type="button" onClick={loadSessions} disabled={sessionLoading}>
+            Refresh
+          </button>
+        </div>
+        <label className="mt-4 block text-sm font-medium text-ink/70">
+          Search chat history
+          <input
+            className="mt-1 h-10 w-full rounded-md border border-line px-3 text-sm outline-none focus:border-pine"
+            value={historySearch}
+            onChange={(event) => setHistorySearch(event.target.value)}
+            placeholder="Search by first message"
+          />
+        </label>
+        <div className="mt-4 space-y-2">
+          {filteredSessions.length === 0 ? (
+            <p className="text-sm text-ink/55">
+              {sessionLoading ? "Loading sessions..." : historySearch.trim() ? "No chat sessions match your search." : "No chat sessions."}
+            </p>
+          ) : null}
+          {visibleSessions.map((session) => (
+            <button
+              key={session.conversation_id}
+              className={`block w-full rounded-md border px-3 py-2 text-left text-sm transition ${
+                conversationId === session.conversation_id ? "border-pine bg-field text-ink" : "border-line bg-white text-ink/75 hover:border-pine"
+              }`}
+              type="button"
+              onClick={() => openConversation(session.conversation_id)}
+            >
+              <span className="block truncate font-medium">{session.label}</span>
+              <span className="mt-1 block text-xs text-ink/45">{formatSessionTime(session.last_activity_at)}</span>
+            </button>
+          ))}
+        </div>
+        {filteredSessions.length > 0 ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+              type="button"
+              disabled={!canShowMore}
+              onClick={() => {
+                setHistoryExpanded(true);
+                setVisibleSessionCount((count) => Math.min(count + CHAT_HISTORY_PAGE_SIZE, filteredSessions.length));
+              }}
+            >
+              Show More
+            </button>
+            {historyExpanded ? (
+              <>
+                <button
+                  className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+                  type="button"
+                  disabled={!canShowLess}
+                  onClick={() => setVisibleSessionCount((count) => Math.max(count - CHAT_HISTORY_PAGE_SIZE, INITIAL_VISIBLE_CHAT_SESSIONS))}
+                >
+                  Show Less
+                </button>
+                <button
+                  className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine"
+                  type="button"
+                  onClick={() => {
+                    setVisibleSessionCount(INITIAL_VISIBLE_CHAT_SESSIONS);
+                    setHistoryExpanded(false);
+                  }}
+                >
+                  Reset
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -297,18 +458,31 @@ function ToolActivityPanel({ activity }: { activity: ToolActivity | null }) {
   const memoryCount = activity?.memory_counts
     ? activity.memory_counts.decisions + activity.memory_counts.research + activity.memory_counts.tasks
     : 0;
+  const repositoryCount = activity?.memory_counts?.repositories ?? 0;
   return (
     <div className="mt-3 rounded-md border border-line bg-field p-3">
       <div className="flex items-center gap-2 text-xs font-medium uppercase text-ink/55">
         <Activity size={14} />
         Tool Activity
       </div>
-      <div className="mt-2 grid gap-2 text-sm text-ink/70 sm:grid-cols-3">
+      <div className="mt-2 grid gap-2 text-sm text-ink/70 sm:grid-cols-2 lg:grid-cols-4">
         <ActivityItem label="Memory Retrieved" active={Boolean(activity?.memory_retrieved)} detail={activity?.memory_retrieved ? `${memoryCount} items` : "No"} />
+        <ActivityItem label="Repository Context" active={Boolean(activity?.repository_retrieved)} detail={activity?.repository_retrieved ? `${repositoryCount} items` : "No"} />
         <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_performed ? "Yes" : "No"} />
         <ActivityItem label="Handoff Generated" active={Boolean(activity?.handoff_generated)} detail={activity?.handoff_generated ? "Yes" : "No"} />
       </div>
       {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Fresh research saved to the current project.</div> : null}
+      {activity?.repository_context ? (
+        <div className="mt-3 rounded-md border border-line bg-white p-3 text-sm text-ink/70">
+          <div className="text-xs font-medium uppercase text-ink/55">Repository Answer Grounding</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <div>Repository Context Used: <span className="font-medium text-ink">{activity.repository_context.files_used} files</span></div>
+            <div>Knowledge Items Used: <span className="font-medium text-ink">{activity.repository_context.knowledge_items_used}</span></div>
+            <div>Repository Last Indexed: <span className="font-medium text-ink">{activity.repository_context.last_indexed_at ? formatSessionTime(activity.repository_context.last_indexed_at) : "Never"}</span></div>
+            <div>Confidence: <span className="font-medium text-ink">{activity.repository_context.confidence}</span></div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -325,6 +499,7 @@ function ActivityItem({ label, active, detail }: { label: string; active: boolea
 function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
   const labels = [];
   if (activity.memory_retrieved) labels.push("memory");
+  if (activity.repository_retrieved) labels.push("repository context");
   if (activity.research_performed) labels.push("research");
   if (activity.handoff_generated) labels.push("handoff");
   if (activity.research_saved) labels.push("saved research");
@@ -362,6 +537,28 @@ function chatRequestStatus(message: string): string {
   if (isHandoff) return "Generating Codex brief...";
   if (usesResearch) return "Looking into that with web research...";
   return "Thinking...";
+}
+
+function formatSessionTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function repositoryStatusClass(status: string): string {
+  if (status === "Up To Date") return "bg-pine/10 text-pine";
+  if (status === "Re-index Recommended") return "bg-amber-100 text-amber-800";
+  if (status === "Index Failed") return "bg-signal/10 text-signal";
+  return "bg-line text-ink/60";
+}
+
+function formatDollars(value: number): string {
+  return `$${value.toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
 }
 
 function ResearchPanel({
@@ -674,6 +871,321 @@ function HandoffsPanel({ currentProjectId, handoffs, refreshAll }: { currentProj
         ))}
       </div>
     </div>
+  );
+}
+
+function RepositoriesPanel({ currentProjectId, currentProjectName }: { currentProjectId: number | null; currentProjectName?: string }) {
+  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [selectedRepositoryId, setSelectedRepositoryId] = useState<number | null>(null);
+  const [knowledge, setKnowledge] = useState<RepositoryKnowledge[]>([]);
+  const [summary, setSummary] = useState("");
+  const [findings, setFindings] = useState<string[]>([]);
+  const [name, setName] = useState("");
+  const [path, setPath] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+
+  useEffect(() => {
+    setSelectedRepositoryId(null);
+    setKnowledge([]);
+    setSummary("");
+    void loadRepositoryData();
+  }, [currentProjectId]);
+
+  async function loadRepositoryData() {
+    setLocalError("");
+    try {
+      const [repoData, analysisData] = await Promise.all([
+        api.listRepositories(currentProjectId),
+        api.projectAnalysis(currentProjectId),
+      ]);
+      setRepositories(repoData);
+      setFindings(analysisData.findings);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to load repository data.");
+    }
+  }
+
+  async function registerRepository(event: FormEvent) {
+    event.preventDefault();
+    setLocalError("");
+    if (!name.trim() || !path.trim()) return;
+    setBusy(true);
+    try {
+      await api.registerRepository({
+        name: name.trim(),
+        path: path.trim(),
+        description,
+        project_id: currentProjectId,
+      });
+      setName("");
+      setPath("");
+      setDescription("");
+      await loadRepositoryData();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to register repository.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function indexRepository(repository: Repository) {
+    setLocalError("");
+    setBusy(true);
+    try {
+      await api.indexRepository(repository.id);
+      await loadRepositoryData();
+      await openRepository(repository.id);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to index repository.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openRepository(repositoryId: number) {
+    setSelectedRepositoryId(repositoryId);
+    const [knowledgeData, summaryData] = await Promise.all([
+      api.repositoryKnowledge(repositoryId),
+      api.repositorySummary(repositoryId),
+    ]);
+    setKnowledge(knowledgeData);
+    setSummary(summaryData.summary);
+  }
+
+  const selectedRepository = repositories.find((repository) => repository.id === selectedRepositoryId);
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+      <div className="space-y-4">
+        <form onSubmit={registerRepository} className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Register Repository</h2>
+          <Field label="Name" value={name} onChange={setName} />
+          <Field label="Local Path" value={path} onChange={setPath} />
+          <Field label="Description" value={description} onChange={setDescription} multiline />
+          <p className="mt-3 text-sm text-ink/60">Repository project: {currentProjectName ?? "None"}</p>
+          <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white disabled:opacity-60" title="Register repository" disabled={busy}>
+            <Plus size={16} />
+            Register
+          </button>
+        </form>
+
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Project Analysis</h2>
+          <div className="mt-3 space-y-2">
+            {findings.length === 0 ? <p className="text-sm text-ink/55">No findings yet.</p> : null}
+            {findings.map((finding) => (
+              <p key={finding} className="rounded-md bg-field px-3 py-2 text-sm text-ink/70">{finding}</p>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="space-y-4">
+        {localError ? <div className="rounded-md border border-signal/40 bg-white px-3 py-2 text-sm text-signal">{localError}</div> : null}
+
+        <section className="rounded-md border border-line bg-white p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-ink">Repositories</h2>
+            <button className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine" type="button" onClick={loadRepositoryData}>
+              Refresh
+            </button>
+          </div>
+          <div className="mt-3 space-y-3">
+            {repositories.length === 0 ? <p className="text-sm text-ink/55">No repositories registered for the current project.</p> : null}
+            {repositories.map((repository) => (
+              <article key={repository.id} className="rounded-md border border-line p-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <button className="min-w-0 flex-1 text-left" type="button" onClick={() => openRepository(repository.id)}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="truncate text-sm font-semibold text-ink">{repository.name}</h3>
+                      <span className={`rounded-md px-2 py-1 text-xs font-medium ${repositoryStatusClass(repository.status)}`}>{repository.status}</span>
+                    </div>
+                    <dl className="mt-3 grid gap-2 text-sm text-ink/65 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Path</dt>
+                        <dd className="truncate text-ink">{repository.path}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Project</dt>
+                        <dd className="text-ink">{currentProjectName ?? "None"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Last Indexed</dt>
+                        <dd>{repository.last_indexed_at ? formatSessionTime(repository.last_indexed_at) : "Never"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Repository Modified</dt>
+                        <dd>{repository.last_known_modified_at ? formatSessionTime(repository.last_known_modified_at) : "Unknown"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Knowledge Items</dt>
+                        <dd>{repository.knowledge_items_count}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase text-ink/45">Files Indexed</dt>
+                        <dd>{repository.files_indexed}</dd>
+                      </div>
+                    </dl>
+                    <p className="mt-3 text-sm text-ink/65">{repository.description || "No description."}</p>
+                    {repository.status === "Index Failed" ? <p className="mt-2 text-sm text-signal">{repository.index_error || "Index failed without stored error details."}</p> : null}
+                  </button>
+                  <button className="h-9 rounded-md bg-pine px-3 text-sm font-medium text-white disabled:opacity-60" type="button" disabled={busy} onClick={() => indexRepository(repository)}>
+                    Re-index
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">{selectedRepository ? `${selectedRepository.name} Summary` : "Repository Summary"}</h2>
+          {summary ? <pre className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink">{summary}</pre> : <p className="mt-3 text-sm text-ink/55">Select or index a repository to view summaries.</p>}
+        </section>
+
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Indexed Knowledge</h2>
+          <div className="mt-3 space-y-3">
+            {knowledge.length === 0 ? <p className="text-sm text-ink/55">No indexed repository knowledge selected.</p> : null}
+            {knowledge.map((item) => (
+              <article key={item.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                <div className="text-xs uppercase text-ink/45">{item.kind}</div>
+                <h3 className="mt-1 text-sm font-semibold text-ink">{item.file_path}</h3>
+                <p className="mt-1 text-sm text-ink/65">{item.summary}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function UsagePanel({ currentProjectId, currentProjectName }: { currentProjectId: number | null; currentProjectName?: string }) {
+  const [usage, setUsage] = useState<UsageDashboard | null>(null);
+  const [allUsage, setAllUsage] = useState<UsageDashboard | null>(null);
+  const [localError, setLocalError] = useState("");
+
+  useEffect(() => {
+    void loadUsage();
+  }, [currentProjectId]);
+
+  async function loadUsage() {
+    setLocalError("");
+    try {
+      const [scoped, all] = await Promise.all([
+        api.usage(currentProjectId),
+        api.usage(null),
+      ]);
+      setUsage(scoped);
+      setAllUsage(all);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to load usage.");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-md border border-line bg-white p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-ink">Usage</h2>
+            <p className="mt-1 text-sm text-ink/60">Estimated OpenAI API costs. Current scope: {currentProjectName ?? "All/global usage"}</p>
+          </div>
+          <button className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine" type="button" onClick={loadUsage}>
+            Refresh
+          </button>
+        </div>
+        {localError ? <p className="mt-3 rounded-md border border-signal/40 px-3 py-2 text-sm text-signal">{localError}</p> : null}
+      </section>
+
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CostMetric label="Today" value={formatDollars(usage?.totals.today ?? 0)} />
+        <CostMetric label="This Week" value={formatDollars(usage?.totals.week ?? 0)} />
+        <CostMetric label="This Month" value={formatDollars(usage?.totals.month ?? 0)} />
+        <CostMetric label="Total" value={formatDollars(usage?.totals.all_time ?? 0)} />
+      </section>
+
+      {currentProjectId !== null && allUsage ? (
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">All Usage Total</h2>
+          <p className="mt-2 text-2xl font-semibold text-ink">{formatDollars(allUsage.totals.all_time)}</p>
+          <p className="mt-1 text-sm text-ink/55">All-time estimated cost across projects and global chats.</p>
+        </section>
+      ) : null}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <UsageGroupList title="Cost By Model" groups={usage?.by_model ?? []} />
+        <UsageGroupList title="Cost By Operation" groups={usage?.by_operation ?? []} />
+      </div>
+
+      <section className="rounded-md border border-line bg-white p-4">
+        <h2 className="text-base font-semibold text-ink">Recent Usage Events</h2>
+        <p className="mt-1 text-sm text-ink/55">Costs are estimated from logged token usage and local pricing assumptions.</p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[720px] text-left text-sm">
+            <thead className="border-b border-line text-xs uppercase text-ink/45">
+              <tr>
+                <th className="py-2 pr-3">Time</th>
+                <th className="py-2 pr-3">Operation</th>
+                <th className="py-2 pr-3">Model</th>
+                <th className="py-2 pr-3">Tokens</th>
+                <th className="py-2 pr-3">Cost</th>
+                <th className="py-2 pr-3">Project</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(usage?.recent ?? []).length === 0 ? (
+                <tr><td className="py-3 text-ink/55" colSpan={6}>No usage logged yet.</td></tr>
+              ) : null}
+              {(usage?.recent ?? []).map((event) => (
+                <tr key={event.id} className="border-b border-line last:border-b-0">
+                  <td className="py-2 pr-3 text-ink/65">{formatSessionTime(event.created_at)}</td>
+                  <td className="py-2 pr-3 text-ink">{event.operation_type}</td>
+                  <td className="py-2 pr-3 text-ink/65">{event.model}</td>
+                  <td className="py-2 pr-3 text-ink/65">{event.total_tokens}</td>
+                  <td className="py-2 pr-3 text-ink">{formatDollars(event.estimated_cost)}</td>
+                  <td className="py-2 pr-3 text-ink/65">{event.project_id ?? "Global"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CostMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-line bg-white p-3">
+      <div className="text-xs font-medium uppercase text-ink/55">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-ink">{value}</div>
+    </div>
+  );
+}
+
+function UsageGroupList({ title, groups }: { title: string; groups: Array<{ name: string; cost: number; tokens: number; calls: number }> }) {
+  return (
+    <section className="rounded-md border border-line bg-white p-4">
+      <h2 className="text-base font-semibold text-ink">{title}</h2>
+      <div className="mt-3 space-y-2">
+        {groups.length === 0 ? <p className="text-sm text-ink/55">No usage logged yet.</p> : null}
+        {groups.map((group) => (
+          <div key={group.name} className="rounded-md bg-field px-3 py-2 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-ink">{group.name}</span>
+              <span className="text-ink">{formatDollars(group.cost)}</span>
+            </div>
+            <div className="mt-1 text-xs text-ink/55">
+              {group.calls} calls - {group.tokens} tokens
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

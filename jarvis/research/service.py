@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from jarvis.core.config import get_settings
 from jarvis.database.models import KnowledgeItem
 from jarvis.memory.retrieval import MemoryRetrievalService
+from jarvis.usage.service import UsageService
 
 
 class ResearchService:
@@ -18,14 +19,25 @@ class ResearchService:
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.retrieval = MemoryRetrievalService(db)
 
-    def run_research(self, query: str, project_id: int | None = None) -> dict[str, object]:
-        memory_context = self.retrieval.retrieve(query, project_id=project_id).to_prompt_context()
+    def run_research(self, query: str, project_id: int | None = None, include_project_context: bool = True) -> dict[str, object]:
+        memory_context = self.retrieval.retrieve(query, project_id=project_id).to_prompt_context() if include_project_context else ""
+        context_instruction = (
+            f"Use the project context when relevant.\n\nProject context:\n{memory_context}\n\n"
+            if include_project_context
+            else "This is a general research request. Do not add a project relevance section unless the user explicitly asks how it relates to Jarvis or the current project.\n\n"
+        )
         response = self.client.responses.create(
             model=self.model,
             tools=[{"type": "web_search"}],
-            input=f"Research this question for Jarvis. Use the project context when relevant, but ground fresh claims in web sources.\n\nProject context:\n{memory_context}\n\nResearch query: {query}\n\nReturn a concise summary, key findings, and cite sources.",
+            input=f"Research this question for Jarvis. Ground fresh claims in web sources.\n\n{context_instruction}Research query: {query}\n\nReturn a concise summary, key findings, and cite sources.",
         )
         payload = response.model_dump()
+        UsageService(self.db).log_openai_usage(
+            model=self.model,
+            operation_type="research",
+            usage=payload.get("usage"),
+            project_id=project_id,
+        )
         sources = self._extract_sources(payload)
         return {
             "query": query,

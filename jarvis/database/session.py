@@ -43,10 +43,21 @@ def _apply_sqlite_schema_updates() -> None:
         return
 
     inspector = inspect(engine)
-    if "conversation_messages" not in inspector.get_table_names():
-        return
+    table_names = inspector.get_table_names()
+    if "conversation_messages" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("conversation_messages")}
+        if "project_id" not in columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE conversation_messages ADD COLUMN project_id INTEGER REFERENCES projects(id)"))
 
-    columns = {column["name"] for column in inspector.get_columns("conversation_messages")}
-    if "project_id" not in columns:
+    if "repositories" in table_names:
+        columns = {column["name"] for column in inspector.get_columns("repositories")}
         with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE conversation_messages ADD COLUMN project_id INTEGER REFERENCES projects(id)"))
+            if "last_known_modified_at" not in columns:
+                connection.execute(text("ALTER TABLE repositories ADD COLUMN last_known_modified_at DATETIME"))
+            if "files_indexed" not in columns:
+                connection.execute(text("ALTER TABLE repositories ADD COLUMN files_indexed INTEGER DEFAULT 0"))
+            if "index_status" not in columns:
+                connection.execute(text("ALTER TABLE repositories ADD COLUMN index_status VARCHAR(40) DEFAULT 'not_indexed'"))
+            if "index_error" not in columns:
+                connection.execute(text("ALTER TABLE repositories ADD COLUMN index_error TEXT DEFAULT ''"))

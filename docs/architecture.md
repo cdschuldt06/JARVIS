@@ -22,13 +22,24 @@ Jarvis v0.4 routes `POST /chat` through `UnifiedAssistant` and `ToolRouter`. The
 
 - normal chat uses `OPENAI_MODEL`
 - project chat retrieves project-scoped memory before responding
+- repository-intent chat retrieves project-scoped repository knowledge before responding
 - research-intent chat uses `OPENAI_RESEARCH_MODEL` and the Responses API web search tool
 - explicit Codex brief requests generate a project-scoped handoff
 - explicit save-research requests store the most recent research-style assistant response as a `KnowledgeItem`
 
 The router does not use an LLM. Rules are intentionally simple and based on phrases such as `research`, `latest`, `news`, `today`, `current`, `Codex brief`, and `implementation brief`.
 
-Memory retrieval remains SQL and keyword based. Ranking weights title matches highest, includes decision details, saved research, and tasks, and never leaves the selected `project_id` scope. Research and handoff generation require a Current Project to avoid accidental global context.
+Memory retrieval remains SQL and keyword based. Ranking weights title matches highest, includes decision details, saved research, tasks, and indexed repository knowledge, and never leaves the selected `project_id` scope. Research and handoff generation require a Current Project to avoid accidental global context.
+
+## Repository Awareness
+
+Jarvis v0.5 adds read-only repository awareness through `RepositoryService` and `ProjectAnalysisService`. Repositories can be registered with a name, local path, description, and optional project association. Indexing is intentionally lightweight and stores summaries in `RepositoryKnowledge` instead of pushing whole source files into prompts.
+
+The indexer focuses on important files such as `README.md`, `package.json`, `requirements.txt`, Prisma schemas, entry points, configuration files, and obvious service/provider/importer components. It skips heavy generated folders such as `.git`, `.next`, `node_modules`, build outputs, virtual environments, and caches.
+
+Repository retrieval is project-scoped and deterministic. When a chat request asks about architecture, importers, code structure, services, risks, or next engineering work, `ToolRouter` can include `REPOSITORY_RETRIEVAL`, and retrieved repository summaries are added to the same prompt context as tasks, decisions, and research.
+
+The Repositories tab can register repositories, re-index them, display summaries, show indexed knowledge, and surface simple project analysis findings such as missing README coverage, missing indexed tests, or missing schema summaries.
 
 ## Agents
 

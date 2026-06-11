@@ -6,27 +6,38 @@ from jarvis.agents.unified_assistant import UnifiedAssistant
 from jarvis.api.schemas import (
     ChatRequest,
     ChatResponse,
+    ConversationSessionRead,
     DecisionCreate,
     DecisionRead,
     HandoffCreate,
     HandoffRead,
     KnowledgeRead,
     MemoryRead,
+    MessageRead,
     ProjectCreate,
     ProjectRead,
     ResearchRequest,
     ResearchResult,
     ResearchSaveRequest,
+    ProjectAnalysisRead,
+    RepositoryCreate,
+    RepositoryIndexRead,
+    RepositoryKnowledgeRead,
+    RepositoryRead,
     TaskCreate,
     TaskRead,
     TaskUpdate,
+    UsageDashboardRead,
 )
 from jarvis.core.config import get_settings
 from jarvis.database.session import get_db, init_db
 from jarvis.handoffs.service import HandoffService
 from jarvis.memory.service import MemoryService
+from jarvis.project_analysis.service import ProjectAnalysisService
+from jarvis.repositories.service import RepositoryService
 from jarvis.research.service import ResearchService
 from jarvis.tasks.service import TaskService
+from jarvis.usage.service import UsageService
 
 settings = get_settings()
 
@@ -59,6 +70,16 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         project_id=payload.project_id,
     )
     return ChatResponse(conversation_id=result.conversation_id, response=result.response, activity=result.activity.__dict__)
+
+
+@app.get("/chat/sessions", response_model=list[ConversationSessionRead])
+def list_chat_sessions(project_id: int | None = None, db: Session = Depends(get_db)) -> list[ConversationSessionRead]:
+    return MemoryService(db).list_conversation_sessions(project_id)
+
+
+@app.get("/chat/conversations/{conversation_id}", response_model=list[MessageRead])
+def get_chat_conversation(conversation_id: str, project_id: int | None = None, db: Session = Depends(get_db)) -> list[MessageRead]:
+    return MemoryService(db).full_conversation_messages(conversation_id, project_id)
 
 
 @app.get("/tasks", response_model=list[TaskRead])
@@ -126,6 +147,49 @@ def save_research(payload: ResearchSaveRequest, db: Session = Depends(get_db)) -
     if payload.project_id is None:
         raise HTTPException(status_code=422, detail="Saving research requires a Current Project. Select a project before saving research.")
     return ResearchService(db).save_research(payload.title, payload.summary, payload.sources, payload.project_id)
+
+
+@app.get("/repositories", response_model=list[RepositoryRead])
+def list_repositories(project_id: int | None = None, db: Session = Depends(get_db)) -> list[RepositoryRead]:
+    return RepositoryService(db).list_repositories(project_id)
+
+
+@app.post("/repositories", response_model=RepositoryRead)
+def register_repository(payload: RepositoryCreate, db: Session = Depends(get_db)) -> RepositoryRead:
+    return RepositoryService(db).register_repository(payload.name, payload.path, payload.description, payload.project_id)
+
+
+@app.post("/repositories/{repository_id}/index", response_model=RepositoryIndexRead)
+def index_repository(repository_id: int, db: Session = Depends(get_db)) -> RepositoryIndexRead:
+    try:
+        result = RepositoryService(db).index_repository(repository_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return RepositoryIndexRead(repository=result.repository, indexed_files=result.indexed_files)
+
+
+@app.get("/repositories/{repository_id}/knowledge", response_model=list[RepositoryKnowledgeRead])
+def repository_knowledge(repository_id: int, db: Session = Depends(get_db)) -> list[RepositoryKnowledgeRead]:
+    return RepositoryService(db).knowledge_for_repository(repository_id)
+
+
+@app.get("/repositories/{repository_id}/summary")
+def repository_summary(repository_id: int, db: Session = Depends(get_db)) -> dict[str, str]:
+    try:
+        summary = RepositoryService(db).repository_summary(repository_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"summary": summary}
+
+
+@app.get("/project-analysis", response_model=ProjectAnalysisRead)
+def project_analysis(project_id: int | None = None, db: Session = Depends(get_db)) -> ProjectAnalysisRead:
+    return ProjectAnalysisRead(findings=ProjectAnalysisService(db).analyze_project(project_id))
+
+
+@app.get("/usage", response_model=UsageDashboardRead)
+def usage_dashboard(project_id: int | None = None, db: Session = Depends(get_db)) -> UsageDashboardRead:
+    return UsageDashboardRead(**UsageService(db).dashboard(project_id))
 
 
 @app.get("/handoffs", response_model=list[HandoffRead])

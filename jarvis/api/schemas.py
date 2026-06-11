@@ -26,7 +26,9 @@ class ToolActivityRead(BaseModel):
     research_performed: bool = False
     handoff_generated: bool = False
     research_saved: bool = False
+    repository_retrieved: bool = False
     memory_counts: dict[str, int] | None = None
+    repository_context: dict[str, object] | None = None
     sources: list[str] | None = None
 
 
@@ -40,6 +42,13 @@ class MessageRead(BaseModel):
     input_mode: str
     project_id: int | None
     created_at: datetime
+
+
+class ConversationSessionRead(BaseModel):
+    conversation_id: str
+    project_id: int | None
+    label: str
+    last_activity_at: datetime
 
 
 class ProjectCreate(BaseModel):
@@ -100,6 +109,78 @@ class ResearchSaveRequest(BaseModel):
     summary: str = Field(min_length=1)
     sources: list[str] = []
     project_id: int | None = None
+
+
+class RepositoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    path: str = Field(min_length=1)
+    description: str = ""
+    project_id: int | None = None
+
+
+class RepositoryRead(RepositoryCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    last_indexed_at: datetime | None
+    last_known_modified_at: datetime | None
+    files_indexed: int
+    index_status: str
+    index_error: str
+    knowledge_items_count: int
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RepositoryKnowledgeRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    repository_id: int
+    file_path: str
+    summary: str
+    kind: str
+    created_at: datetime
+
+
+class RepositoryIndexRead(BaseModel):
+    repository: RepositoryRead
+    indexed_files: int
+
+
+class ProjectAnalysisRead(BaseModel):
+    findings: list[str]
+
+
+class UsageLogRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    created_at: datetime
+    model: str
+    operation_type: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    estimated_cost: float
+    project_id: int | None
+    conversation_id: str | None
+
+
+class UsageGroupRead(BaseModel):
+    name: str
+    cost: float
+    tokens: int
+    calls: int
+
+
+class UsageDashboardRead(BaseModel):
+    estimated: bool
+    totals: dict[str, float]
+    by_model: list[UsageGroupRead]
+    by_operation: list[UsageGroupRead]
+    recent: list[UsageLogRead]
 
 
 class MemoryRead(BaseModel):
