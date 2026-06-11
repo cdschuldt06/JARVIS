@@ -35,7 +35,9 @@ Decisions are also written into the knowledge table so future retrieval can use 
 
 ## Voice
 
-The voice layer is an interface-only abstraction in v0.1. Chat already records an `input_mode`, so typed and spoken messages can share the same downstream path.
+The backend voice layer defines provider abstractions for future speech-to-text and text-to-speech services. The v0.3 MVP is browser-only: the web Chat tab feature-detects `SpeechRecognition` for push-to-talk and uses `SpeechSynthesis` for spoken responses when enabled. Chat records voice-originated messages with `input_mode="voice"`.
+
+Wake words, backend audio transcription, OpenAI audio APIs, and local computer control are intentionally out of scope.
 
 ## Safety
 

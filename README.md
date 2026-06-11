@@ -96,6 +96,12 @@ The Memory, Tasks, and Handoffs views show records for the Current Project. The 
 
 Jarvis retrieves project-scoped memory before normal chat responses using deterministic keyword matching across project goals, decisions, knowledge items, and tasks. Research is a separate workflow that uses `OPENAI_RESEARCH_MODEL` with the OpenAI Responses API web search tool. Saved research is stored as `KnowledgeItem(kind="research")` and included in future Codex handoffs.
 
+## v0.3 Voice MVP
+
+Jarvis includes browser-based voice controls in the Chat tab. Push-to-talk uses browser `SpeechRecognition` when available and falls back cleanly to typed chat when unsupported. Spoken responses use browser `SpeechSynthesis` only when the user enables `Speak responses`.
+
+This MVP does not implement wake-word detection, backend audio transcription, OpenAI audio APIs, or device control. The backend voice abstraction remains the future integration boundary for production speech-to-text and text-to-speech providers.
+
 ## Safety
 
 Jarvis v0.1 does not execute computer-control actions, terminal commands, trading, email sending, GitHub writes, or local file edits. It only includes a safety registry so future tools can declare risk level and confirmation requirements before they are enabled.

@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
-import { Brain, ClipboardList, FileText, MessageSquare, Plus, RefreshCw, Save, Search, Send } from "lucide-react";
+import { Brain, ClipboardList, FileText, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
 import { Handoff, Memory, Project, ResearchResult, Task, api } from "@/lib/api";
+import { BrowserSpeechRecognition, ChatInputMode, createSpeechRecognition, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, speakText } from "@/lib/voice";
 
 type View = "chat" | "research" | "tasks" | "memory" | "handoffs";
 type ChatLine = { role: "user" | "assistant"; content: string };
@@ -168,28 +169,86 @@ function ChatPanel({
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [message, setMessage] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
+  const [speechRecognitionAvailable, setSpeechRecognitionAvailable] = useState(false);
+  const [speechSynthesisAvailable, setSpeechSynthesisAvailable] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [speakResponses, setSpeakResponses] = useState(false);
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!message.trim() || loading) return;
-    const outgoing = message.trim();
+  useEffect(() => {
+    setSpeechRecognitionAvailable(isSpeechRecognitionAvailable());
+    setSpeechSynthesisAvailable(isSpeechSynthesisAvailable());
+    return () => {
+      recognitionRef.current?.abort();
+      if (isSpeechSynthesisAvailable()) window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  async function sendMessage(outgoing: string, inputMode: ChatInputMode = "text") {
+    if (!outgoing.trim() || loading) return;
+    const trimmed = outgoing.trim();
     setMessage("");
-    setLines((current) => [...current, { role: "user", content: outgoing }]);
+    setVoiceStatus("");
+    setLines((current) => [...current, { role: "user", content: trimmed }]);
     setLoading(true);
     try {
-      const result = await api.chat(outgoing, conversationId, currentProjectId);
+      const result = await api.chat(trimmed, conversationId, currentProjectId, inputMode);
       setConversationId(result.conversation_id);
       setLines((current) => [...current, { role: "assistant", content: result.response }]);
+      if (speakResponses) speakText(result.response);
       await refreshAll();
     } finally {
       setLoading(false);
     }
   }
 
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await sendMessage(message);
+  }
+
+  function startListening() {
+    if (!speechRecognitionAvailable) {
+      setVoiceStatus("Voice input is not available in this browser. Typed chat still works.");
+      return;
+    }
+    if (loading || listening) return;
+
+    const recognition = createSpeechRecognition({
+      onStart: () => {
+        setListening(true);
+        setVoiceStatus("Listening...");
+      },
+      onEnd: () => setListening(false),
+      onError: (error) => {
+        setListening(false);
+        setVoiceStatus(error);
+      },
+      onResult: (transcript) => {
+        setMessage(transcript);
+        void sendMessage(transcript, "voice");
+      },
+    });
+    if (!recognition) {
+      setVoiceStatus("Voice input is not available in this browser. Typed chat still works.");
+      return;
+    }
+    recognitionRef.current = recognition;
+    recognition.start();
+  }
+
   return (
     <div className="grid min-h-[620px] grid-rows-[auto_1fr_auto] rounded-md border border-line bg-white">
       <div className="border-b border-line px-4 pb-4 pt-1">
         <div className="pt-3 text-sm text-ink/65">Current Project: <span className="font-medium text-ink">{currentProjectName ?? "None"}</span></div>
+        <label className="mt-3 flex items-center gap-2 text-sm text-ink/70">
+          <input className="h-4 w-4" type="checkbox" checked={speakResponses} disabled={!speechSynthesisAvailable} onChange={(event) => setSpeakResponses(event.target.checked)} />
+          <Volume2 size={16} />
+          Speak responses
+        </label>
+        {!speechRecognitionAvailable ? <p className="mt-2 text-sm text-ink/55">Voice input is not available in this browser. Typed chat still works.</p> : null}
+        {voiceStatus ? <p className="mt-2 text-sm text-ink/65">{voiceStatus}</p> : null}
       </div>
       <div className="space-y-3 overflow-y-auto p-4">
         {lines.length === 0 ? <div className="text-sm text-ink/55">No messages yet.</div> : null}
@@ -206,6 +265,15 @@ function ChatPanel({
           onChange={(event) => setMessage(event.target.value)}
           placeholder="Message Jarvis"
         />
+        <button
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-md border border-line transition ${listening ? "bg-signal text-white" : "bg-white text-ink hover:border-pine"}`}
+          title={speechRecognitionAvailable ? "Push to talk" : "Voice input unavailable"}
+          type="button"
+          disabled={loading || !speechRecognitionAvailable}
+          onClick={startListening}
+        >
+          <Mic size={18} />
+        </button>
         <button className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-pine text-white transition hover:bg-pine/90" title="Send" disabled={loading}>
           <Send size={18} />
         </button>

@@ -60,10 +60,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  chat: (message: string, conversationId?: string, projectId?: number | null) =>
+  chat: (message: string, conversationId?: string, projectId?: number | null, inputMode: "text" | "voice" = "text") =>
     request<{ conversation_id: string; response: string }>("/chat", {
       method: "POST",
-      body: JSON.stringify({ message, conversation_id: conversationId, project_id: projectId ?? null, input_mode: "text" }),
+      body: JSON.stringify({ message, conversation_id: conversationId, project_id: projectId ?? null, input_mode: inputMode }),
     }),
   listTasks: () => request<Task[]>("/tasks"),
   createTask: (task: Partial<Task> & { title: string }) =>
