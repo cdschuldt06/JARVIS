@@ -1,6 +1,6 @@
-# Jarvis v0.1 Architecture
+# Jarvis v0.2 Architecture
 
-Jarvis v0.1 separates the shared brain from future device agents.
+Jarvis v0.2 separates the shared brain from future device agents and adds Awareness through memory retrieval and web research.
 
 ## Shared Brain
 
@@ -9,6 +9,12 @@ The FastAPI backend owns durable memory, projects, decisions, tasks, knowledge, 
 ## Model Configuration
 
 Jarvis supports two configurable OpenAI model names. `OPENAI_MODEL` is the everyday chat model used by the current chat path. `OPENAI_RESEARCH_MODEL` is reserved for v0.2 workflows that need web search, research, or deeper synthesis. The current chat behavior does not use the research model yet.
+
+## Awareness
+
+Jarvis v0.2 adds a deterministic retrieval layer before chat responses. It retrieves relevant project goals, decisions, knowledge items, and tasks with keyword and metadata matching. This intentionally avoids embeddings, vector databases, and external RAG frameworks.
+
+Research is a dedicated path that uses the OpenAI Responses API with hosted web search and `OPENAI_RESEARCH_MODEL`. Research results can be saved as `KnowledgeItem` rows with `kind="research"` and project association. Codex handoffs include stored research as implementation context.
 
 ## Agents
 

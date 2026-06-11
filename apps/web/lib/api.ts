@@ -22,7 +22,7 @@ export type Memory = {
   conversations: Array<{ id: number; role: string; content: string; conversation_id: string; project_id: number | null; created_at: string }>;
   projects: Project[];
   decisions: Array<{ id: number; title: string; details: string; reasoning: string; project_id: number | null }>;
-  knowledge: Array<{ id: number; title: string; body: string; kind: string; source: string; project_id: number | null }>;
+  knowledge: Array<{ id: number; title: string; body: string; kind: string; source: string; project_id: number | null; created_at?: string }>;
 };
 
 export type Handoff = {
@@ -32,6 +32,13 @@ export type Handoff = {
   brief: string;
   status: string;
   created_at: string;
+};
+
+export type ResearchResult = {
+  query: string;
+  model: string;
+  summary: string;
+  sources: string[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -68,6 +75,12 @@ export const api = {
     request<Project>("/projects", { method: "POST", body: JSON.stringify(project) }),
   createDecision: (decision: { title: string; details: string; reasoning: string; project_id: number | null }) =>
     request("/decisions", { method: "POST", body: JSON.stringify(decision) }),
+  runResearch: (payload: { query: string; project_id: number | null }) =>
+    request<ResearchResult>("/research", { method: "POST", body: JSON.stringify(payload) }),
+  saveResearch: (payload: { title: string; summary: string; sources: string[]; project_id: number | null }) =>
+    request<Memory["knowledge"][number]>("/research/save", { method: "POST", body: JSON.stringify(payload) }),
+  listResearch: (projectId?: number | null) =>
+    request<Memory["knowledge"]>(projectId == null ? "/research" : `/research?project_id=${projectId}`),
   getMemory: () => request<Memory>("/memory"),
   listHandoffs: () => request<Handoff[]>("/handoffs"),
   createHandoff: (payload: { user_request: string; project_id: number | null }) =>

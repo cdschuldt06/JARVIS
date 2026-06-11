@@ -2,14 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
-import { Brain, ClipboardList, FileText, MessageSquare, Plus, RefreshCw, Send } from "lucide-react";
-import { Handoff, Memory, Project, Task, api } from "@/lib/api";
+import { Brain, ClipboardList, FileText, MessageSquare, Plus, RefreshCw, Save, Search, Send } from "lucide-react";
+import { Handoff, Memory, Project, ResearchResult, Task, api } from "@/lib/api";
 
-type View = "chat" | "tasks" | "memory" | "handoffs";
+type View = "chat" | "research" | "tasks" | "memory" | "handoffs";
 type ChatLine = { role: "user" | "assistant"; content: string };
 
 const views: Array<{ id: View; label: string; icon: ComponentType<{ size?: number }> }> = [
   { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "research", label: "Research", icon: Search },
   { id: "tasks", label: "Tasks", icon: ClipboardList },
   { id: "memory", label: "Memory", icon: Brain },
   { id: "handoffs", label: "Handoffs", icon: FileText },
@@ -131,6 +132,7 @@ export default function Home() {
 
           <section className="min-w-0">
             {activeView === "chat" ? <ChatPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} loading={loading} setLoading={setLoading} refreshAll={refreshAll} /> : null}
+            {activeView === "research" ? <ResearchPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "tasks" ? <TasksPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} tasks={tasks} refreshAll={refreshAll} /> : null}
             {activeView === "memory" ? <MemoryPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} projects={projects} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "handoffs" ? <HandoffsPanel currentProjectId={currentProjectId} handoffs={handoffs} refreshAll={refreshAll} /> : null}
@@ -208,6 +210,105 @@ function ChatPanel({
           <Send size={18} />
         </button>
       </form>
+    </div>
+  );
+}
+
+function ResearchPanel({
+  currentProjectId,
+  currentProjectName,
+  memory,
+  refreshAll,
+}: {
+  currentProjectId: number | null;
+  currentProjectName?: string;
+  memory: Memory | null;
+  refreshAll: () => Promise<void>;
+}) {
+  const [query, setQuery] = useState("");
+  const [title, setTitle] = useState("");
+  const [result, setResult] = useState<ResearchResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const savedResearch = memory?.knowledge.filter((item) => item.kind === "research" && item.project_id === currentProjectId) ?? [];
+
+  async function runResearch(event: FormEvent) {
+    event.preventDefault();
+    setLocalError("");
+    if (currentProjectId === null) {
+      setLocalError("Select a Current Project before running research.");
+      return;
+    }
+    if (!query.trim() || busy) return;
+    setBusy(true);
+    try {
+      const nextResult = await api.runResearch({ query: query.trim(), project_id: currentProjectId });
+      setResult(nextResult);
+      setTitle(nextResult.query);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveResearch() {
+    setLocalError("");
+    if (currentProjectId === null) {
+      setLocalError("Select a Current Project before saving research.");
+      return;
+    }
+    if (!result || !title.trim()) return;
+    await api.saveResearch({
+      title: title.trim(),
+      summary: result.summary,
+      sources: result.sources,
+      project_id: currentProjectId,
+    });
+    await refreshAll();
+  }
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+      <form onSubmit={runResearch} className="rounded-md border border-line bg-white p-4">
+        <h2 className="text-base font-semibold text-ink">Run Research</h2>
+        <Field label="Query" value={query} onChange={setQuery} multiline />
+        <p className="mt-3 text-sm text-ink/60">Research project: {currentProjectName ?? "None"}</p>
+        {localError ? <p className="mt-3 rounded-md border border-signal/40 px-3 py-2 text-sm text-signal">{localError}</p> : null}
+        <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white" title="Run research" disabled={busy}>
+          <Search size={16} />
+          {busy ? "Researching" : "Run"}
+        </button>
+      </form>
+
+      <div className="space-y-4">
+        {result ? (
+          <article className="rounded-md border border-line bg-white p-4">
+            <div className="mb-3 text-xs uppercase text-ink/50">{result.model}</div>
+            <Field label="Save Title" value={title} onChange={setTitle} />
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink">{result.summary}</p>
+            <SourceList sources={result.sources} />
+            <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white" title="Save research" onClick={saveResearch} type="button">
+              <Save size={16} />
+              Save
+            </button>
+          </article>
+        ) : (
+          <p className="rounded-md border border-line bg-white p-4 text-sm text-ink/55">No active research result.</p>
+        )}
+
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Saved Research</h2>
+          <div className="mt-3 space-y-3">
+            {savedResearch.length === 0 ? <p className="text-sm text-ink/55">No saved research for the current project.</p> : null}
+            {savedResearch.map((item) => (
+              <article key={item.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                <h3 className="text-sm font-semibold text-ink">{item.title}</h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-ink/65">{item.body}</p>
+                <SourceList sources={parseSourceUrls(item.source)} />
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
@@ -384,10 +485,16 @@ function MemoryPanel({
 
 function HandoffsPanel({ currentProjectId, handoffs, refreshAll }: { currentProjectId: number | null; handoffs: Handoff[]; refreshAll: () => Promise<void> }) {
   const [request, setRequest] = useState("");
+  const [localError, setLocalError] = useState("");
   const scopedHandoffs = handoffs.filter((handoff) => handoff.project_id === currentProjectId);
 
   async function createHandoff(event: FormEvent) {
     event.preventDefault();
+    setLocalError("");
+    if (currentProjectId === null) {
+      setLocalError("Select a Current Project before generating a Codex handoff.");
+      return;
+    }
     if (!request.trim()) return;
     await api.createHandoff({ user_request: request, project_id: currentProjectId });
     setRequest("");
@@ -400,6 +507,7 @@ function HandoffsPanel({ currentProjectId, handoffs, refreshAll }: { currentProj
         <h2 className="text-base font-semibold text-ink">Codex Brief</h2>
         <Field label="Request" value={request} onChange={setRequest} multiline />
         <p className="mt-3 text-sm text-ink/60">Uses the current project selected at the top of the dashboard.</p>
+        {localError ? <p className="mt-3 rounded-md border border-signal/40 px-3 py-2 text-sm text-signal">{localError}</p> : null}
         <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white" title="Generate brief">
           <FileText size={16} />
           Generate
@@ -463,4 +571,32 @@ function MemoryList({ title, items }: { title: string; items: Array<[string, str
       </div>
     </section>
   );
+}
+
+function SourceList({ sources }: { sources: string[] }) {
+  if (sources.length === 0) {
+    return <p className="mt-3 text-sm text-ink/55">No sources returned.</p>;
+  }
+  return (
+    <ul className="mt-3 space-y-1 text-sm text-ink/65">
+      {sources.map((source) => (
+        <li key={source}>
+          <a className="text-pine underline" href={source} target="_blank" rel="noreferrer">
+            {source}
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function parseSourceUrls(source: string): string[] {
+  if (!source) return [];
+  try {
+    const parsed = JSON.parse(source) as { urls?: unknown };
+    if (!Array.isArray(parsed.urls)) return [];
+    return parsed.urls.filter((url): url is string => typeof url === "string");
+  } catch {
+    return [];
+  }
 }

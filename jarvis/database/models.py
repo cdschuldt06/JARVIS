@@ -86,7 +86,7 @@ class KnowledgeItem(Base):
     title: Mapped[str] = mapped_column(String(200), index=True)
     body: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(80), default="note")
-    source: Mapped[str] = mapped_column(String(120), default="manual")
+    source: Mapped[str] = mapped_column(Text, default="manual")
     project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

@@ -71,6 +71,25 @@ class KnowledgeRead(BaseModel):
     created_at: datetime
 
 
+class ResearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    project_id: int | None = None
+
+
+class ResearchResult(BaseModel):
+    query: str
+    model: str
+    summary: str
+    sources: list[str] = []
+
+
+class ResearchSaveRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    summary: str = Field(min_length=1)
+    sources: list[str] = []
+    project_id: int | None = None
+
+
 class MemoryRead(BaseModel):
     conversations: list[MessageRead]
     projects: list[ProjectRead]

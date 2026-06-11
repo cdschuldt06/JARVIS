@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from jarvis.database.models import CodexHandoff, Decision, Project, Task
+from jarvis.database.models import CodexHandoff, Decision, KnowledgeItem, Project, Task
 from jarvis.memory.service import MemoryService
 
 
@@ -17,7 +17,8 @@ class HandoffService:
         project = self.memory.get_project(project_id)
         decisions = self._project_decisions(project_id)
         tasks = self._project_tasks(project_id)
-        brief = self._render_brief(user_request, project, decisions, tasks)
+        research = self._project_research(project_id)
+        brief = self._render_brief(user_request, project, decisions, tasks, research)
         handoff = CodexHandoff(project_id=project_id, user_request=user_request, brief=brief)
         self.db.add(handoff)
         self.db.commit()
@@ -36,12 +37,19 @@ class HandoffService:
             stmt = stmt.where(Task.project_id == project_id)
         return self.db.scalars(stmt.order_by(Task.created_at.desc())).all()
 
-    def _render_brief(self, user_request: str, project: Project | None, decisions: list[Decision], tasks: list[Task]) -> str:
+    def _project_research(self, project_id: int | None) -> list[KnowledgeItem]:
+        stmt = select(KnowledgeItem).where(KnowledgeItem.kind == "research")
+        if project_id is not None:
+            stmt = stmt.where(KnowledgeItem.project_id == project_id)
+        return self.db.scalars(stmt.order_by(KnowledgeItem.created_at.desc())).all()
+
+    def _render_brief(self, user_request: str, project: Project | None, decisions: list[Decision], tasks: list[Task], research: list[KnowledgeItem]) -> str:
         project_name = project.name if project else "Unspecified project"
         project_goals = project.goals if project else "No explicit project goals stored yet."
         project_description = project.description if project else "No project description stored yet."
         decision_lines = "\n".join(f"- {d.title}: {d.details} Reasoning: {d.reasoning}" for d in decisions) or "- None recorded."
         task_lines = "\n".join(f"- [{t.status.value}] {t.title} ({t.priority.value}, assigned to {t.assigned_agent})" for t in tasks) or "- None recorded."
+        research_lines = "\n".join(f"- {item.title}: {item.body}" for item in research) or "- None recorded."
 
         return f"""# Codex Implementation Brief
 
@@ -59,6 +67,9 @@ class HandoffService:
 
 ## Known Decisions
 {decision_lines}
+
+## Known Research
+{research_lines}
 
 ## Constraints
 - Jarvis is the planner and memory layer.

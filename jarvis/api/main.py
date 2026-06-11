@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -10,9 +10,13 @@ from jarvis.api.schemas import (
     DecisionRead,
     HandoffCreate,
     HandoffRead,
+    KnowledgeRead,
     MemoryRead,
     ProjectCreate,
     ProjectRead,
+    ResearchRequest,
+    ResearchResult,
+    ResearchSaveRequest,
     TaskCreate,
     TaskRead,
     TaskUpdate,
@@ -21,6 +25,7 @@ from jarvis.core.config import get_settings
 from jarvis.database.session import get_db, init_db
 from jarvis.handoffs.service import HandoffService
 from jarvis.memory.service import MemoryService
+from jarvis.research.service import ResearchService
 from jarvis.tasks.service import TaskService
 
 settings = get_settings()
@@ -102,6 +107,27 @@ def create_decision(payload: DecisionCreate, db: Session = Depends(get_db)) -> D
     return MemoryService(db).create_decision(payload)
 
 
+@app.post("/research", response_model=ResearchResult)
+def run_research(payload: ResearchRequest, db: Session = Depends(get_db)) -> ResearchResult:
+    if payload.project_id is None:
+        raise HTTPException(status_code=422, detail="Research requires a Current Project. Select a project before running research.")
+    return ResearchResult(**ResearchService(db).run_research(payload.query, payload.project_id))
+
+
+@app.get("/research", response_model=list[KnowledgeRead])
+def list_research(project_id: int | None = None, db: Session = Depends(get_db)) -> list[KnowledgeRead]:
+    if project_id is None:
+        raise HTTPException(status_code=422, detail="Saved research requires a Current Project. Select a project before viewing research.")
+    return ResearchService(db).list_research(project_id)
+
+
+@app.post("/research/save", response_model=KnowledgeRead)
+def save_research(payload: ResearchSaveRequest, db: Session = Depends(get_db)) -> KnowledgeRead:
+    if payload.project_id is None:
+        raise HTTPException(status_code=422, detail="Saving research requires a Current Project. Select a project before saving research.")
+    return ResearchService(db).save_research(payload.title, payload.summary, payload.sources, payload.project_id)
+
+
 @app.get("/handoffs", response_model=list[HandoffRead])
 def list_handoffs(db: Session = Depends(get_db)) -> list[HandoffRead]:
     return HandoffService(db).list_handoffs()
@@ -109,4 +135,6 @@ def list_handoffs(db: Session = Depends(get_db)) -> list[HandoffRead]:
 
 @app.post("/handoffs", response_model=HandoffRead)
 def create_handoff(payload: HandoffCreate, db: Session = Depends(get_db)) -> HandoffRead:
+    if payload.project_id is None:
+        raise HTTPException(status_code=422, detail="Codex handoff generation requires a Current Project. Select a project before generating a handoff.")
     return HandoffService(db).create_handoff(payload.user_request, payload.project_id)

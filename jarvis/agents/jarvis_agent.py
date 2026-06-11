@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from jarvis.agents.base import Agent
 from jarvis.llm import OpenAIClient
+from jarvis.memory.retrieval import MemoryRetrievalService
 from jarvis.memory.service import MemoryService
 
 
@@ -17,6 +18,7 @@ class JarvisAgent(Agent):
 
     def __init__(self, db: Session, llm: OpenAIClient | None = None) -> None:
         self.memory = MemoryService(db)
+        self.retrieval = MemoryRetrievalService(db)
         self.llm = llm or OpenAIClient()
 
     def chat(
@@ -33,8 +35,9 @@ class JarvisAgent(Agent):
             input_mode=input_mode,
             project_id=project_id,
         )
+        retrieved = self.retrieval.retrieve(user_message, project_id=project_id)
         history = self.memory.conversation_messages(user_record.conversation_id)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": f"{SYSTEM_PROMPT}\n\nUse this retrieved memory when it is relevant. Do not invent memory that is not present.\n\n{retrieved.to_prompt_context()}"}]
         messages.extend({"role": item.role, "content": item.content} for item in history)
         response_text = self.llm.chat(messages)
         self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)

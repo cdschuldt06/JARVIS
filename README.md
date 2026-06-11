@@ -74,6 +74,9 @@ The web app expects the backend at `http://localhost:8000` by default.
 - `GET /memory`
 - `GET /projects`
 - `POST /projects`
+- `POST /research`
+- `GET /research`
+- `POST /research/save`
 - `GET /handoffs`
 - `POST /handoffs`
 
@@ -88,6 +91,10 @@ The Memory, Tasks, and Handoffs views show records for the Current Project. The 
 ## Model Configuration
 
 `OPENAI_MODEL` is the default everyday chat model used by Jarvis v0.1. `OPENAI_RESEARCH_MODEL` is reserved for v0.2 web search, research, and synthesis workflows. Current chat behavior still uses `OPENAI_MODEL`.
+
+## v0.2 Awareness
+
+Jarvis retrieves project-scoped memory before normal chat responses using deterministic keyword matching across project goals, decisions, knowledge items, and tasks. Research is a separate workflow that uses `OPENAI_RESEARCH_MODEL` with the OpenAI Responses API web search tool. Saved research is stored as `KnowledgeItem(kind="research")` and included in future Codex handoffs.
 
 ## Safety
 
