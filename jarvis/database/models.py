@@ -35,6 +35,26 @@ class HandoffStatus(str, Enum):
     superseded = "superseded"
 
 
+class CodexTaskStatus(str, Enum):
+    draft = "draft"
+    ready = "ready"
+    approved = "approved"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    timed_out = "timed_out"
+    blocked = "blocked"
+
+
+class CodexExecutionMode(str, Enum):
+    local_exec = "local_exec"
+
+
+class CodexSandboxMode(str, Enum):
+    read_only = "read_only"
+    workspace_write = "workspace_write"
+
+
 class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
 
@@ -63,6 +83,7 @@ class Project(Base):
     decisions: Mapped[list["Decision"]] = relationship(back_populates="project")
     tasks: Mapped[list["Task"]] = relationship(back_populates="project")
     handoffs: Mapped[list["CodexHandoff"]] = relationship(back_populates="project")
+    codex_tasks: Mapped[list["CodexTask"]] = relationship(back_populates="project")
     conversation_messages: Mapped[list[ConversationMessage]] = relationship(back_populates="project")
     repositories: Mapped[list["Repository"]] = relationship(back_populates="project")
 
@@ -119,6 +140,29 @@ class CodexHandoff(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     project: Mapped[Project | None] = relationship(back_populates="handoffs")
+
+
+class CodexTask(Base):
+    __tablename__ = "codex_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id"), nullable=True)
+    title: Mapped[str] = mapped_column(String(200), index=True)
+    user_request: Mapped[str] = mapped_column(Text)
+    generated_brief: Mapped[str] = mapped_column(Text)
+    status: Mapped[CodexTaskStatus] = mapped_column(default=CodexTaskStatus.ready)
+    execution_mode: Mapped[CodexExecutionMode] = mapped_column(default=CodexExecutionMode.local_exec)
+    sandbox_mode: Mapped[CodexSandboxMode] = mapped_column(default=CodexSandboxMode.read_only)
+    codex_command: Mapped[str] = mapped_column(Text, default="")
+    codex_stdout: Mapped[str] = mapped_column(Text, default="")
+    codex_stderr: Mapped[str] = mapped_column(Text, default="")
+    codex_result_summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    project: Mapped[Project | None] = relationship(back_populates="codex_tasks")
 
 
 class Repository(Base):

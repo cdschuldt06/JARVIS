@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     openai_model: str = Field(default="gpt-4.1-mini", alias="OPENAI_MODEL")
     openai_research_model: str = Field(default="gpt-5.5", alias="OPENAI_RESEARCH_MODEL")
     alpha_vantage_api_key: str = Field(default="", alias="ALPHA_VANTAGE_API_KEY")
+    codex_cli_path: str = Field(default="codex", alias="CODEX_CLI_PATH")
+    codex_working_directory: str = Field(default=r"C:\Projects\jarvis", alias="CODEX_WORKING_DIRECTORY")
+    codex_default_sandbox: str = Field(default="read-only", alias="CODEX_DEFAULT_SANDBOX")
+    codex_exec_timeout_seconds: int = Field(default=300, alias="CODEX_EXEC_TIMEOUT_SECONDS")
+    codex_require_chatgpt_auth: bool = Field(default=True, alias="CODEX_REQUIRE_CHATGPT_AUTH")
     cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
 
     @field_validator("openai_api_key")

@@ -8,8 +8,9 @@ class ToolAction(str, Enum):
     MEMORY_RETRIEVAL = "MEMORY_RETRIEVAL"
     NEWS = "NEWS"
     MARKET = "MARKET"
+    CODEX_TASK = "CODEX_TASK"
+    CODEX_TASK_RUN_REQUEST = "CODEX_TASK_RUN_REQUEST"
     RESEARCH = "RESEARCH"
-    HANDOFF_GENERATION = "HANDOFF_GENERATION"
     SAVE_RESEARCH = "SAVE_RESEARCH"
     REPOSITORY_RETRIEVAL = "REPOSITORY_RETRIEVAL"
 
@@ -68,30 +69,9 @@ class ToolRouter:
         "s&p",
     )
     handoff_terms = ("codex brief", "implementation brief", "codex handoff", "handoff")
-    handoff_research_terms = (
-        "ai",
-        "api",
-        "audio",
-        "browser",
-        "current",
-        "framework",
-        "integration",
-        "latest",
-        "library",
-        "model",
-        "openai",
-        "realtime",
-        "research",
-        "sdk",
-        "speech",
-        "technical",
-        "transcription",
-        "tts",
-        "voice",
-        "wake word",
-        "websocket",
-    )
     save_research_terms = ("save that research", "save this research", "store that research", "store this research")
+    codex_task_terms = ("create a codex task", "create codex task", "make a codex task", "add a codex task")
+    codex_task_run_terms = ("run the codex task", "execute the codex task", "start the codex task")
     repository_terms = (
         "architecture",
         "code",
@@ -131,12 +111,11 @@ class ToolRouter:
         if self._contains_any(text, self.save_research_terms):
             return ToolRoute((ToolAction.SAVE_RESEARCH,), "chat")
 
-        if self._contains_any(text, self.handoff_terms):
-            actions.extend((ToolAction.HANDOFF_GENERATION, ToolAction.MEMORY_RETRIEVAL))
-            if self._contains_any(text, self.handoff_research_terms):
-                actions.append(ToolAction.RESEARCH)
-            model_purpose = "research" if ToolAction.RESEARCH in actions else "chat"
-            return ToolRoute(tuple(dict.fromkeys(actions)), model_purpose)
+        if self._contains_any(text, self.codex_task_run_terms):
+            return ToolRoute((ToolAction.CODEX_TASK_RUN_REQUEST,), "chat")
+
+        if self._contains_any(text, self.codex_task_terms) or self._contains_any(text, self.handoff_terms):
+            return ToolRoute((ToolAction.CODEX_TASK,), "chat")
 
         if self._uses_market(text):
             return ToolRoute((ToolAction.MARKET,), "chat")

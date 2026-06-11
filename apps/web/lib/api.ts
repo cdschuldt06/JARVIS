@@ -68,13 +68,23 @@ export type ChatSession = {
   last_activity_at: string;
 };
 
-export type Handoff = {
+export type CodexTask = {
   id: number;
   project_id: number | null;
+  title: string;
   user_request: string;
-  brief: string;
-  status: string;
+  generated_brief: string;
+  status: "draft" | "ready" | "approved" | "running" | "completed" | "failed" | "timed_out" | "blocked";
+  execution_mode: "local_exec";
+  sandbox_mode: "read_only" | "workspace_write";
+  codex_command: string;
+  codex_stdout: string;
+  codex_stderr: string;
+  codex_result_summary: string;
   created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
 export type ResearchResult = {
@@ -120,6 +130,7 @@ export type ToolActivity = {
   handoff_generated: boolean;
   research_saved: boolean;
   repository_retrieved: boolean;
+  codex_task_created: boolean;
   news_provider_used: string | null;
   market_provider_used: string | null;
   research_fallback_used: boolean;
@@ -139,7 +150,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(body || `Request failed: ${response.status}`);
+    let message = body || `Request failed: ${response.status}`;
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown };
+      if (typeof parsed.detail === "string") {
+        message = parsed.detail;
+      }
+    } catch {
+      // Keep the raw response text when it is not JSON.
+    }
+    throw new Error(message);
   }
   if (response.status === 204) {
     return undefined as T;
@@ -174,9 +194,20 @@ export const api = {
   listResearch: (projectId?: number | null) =>
     request<Memory["knowledge"]>(projectId == null ? "/research" : `/research?project_id=${projectId}`),
   getMemory: () => request<Memory>("/memory"),
-  listHandoffs: () => request<Handoff[]>("/handoffs"),
-  createHandoff: (payload: { user_request: string; project_id: number | null }) =>
-    request<Handoff>("/handoffs", { method: "POST", body: JSON.stringify(payload) }),
+  listCodexTasks: (projectId?: number | null) =>
+    request<CodexTask[]>(projectId == null ? "/codex-tasks" : `/codex-tasks?project_id=${projectId}`),
+  createCodexTask: (payload: { user_request: string; project_id: number | null; title?: string | null; sandbox_mode?: "read_only" | "workspace_write" | null }) =>
+    request<CodexTask>("/codex-tasks", { method: "POST", body: JSON.stringify(payload) }),
+  updateCodexTaskBrief: (taskId: number, generatedBrief: string) =>
+    request<CodexTask>(`/codex-tasks/${taskId}/brief`, { method: "PATCH", body: JSON.stringify({ generated_brief: generatedBrief }) }),
+  approveCodexTask: (taskId: number) =>
+    request<CodexTask>(`/codex-tasks/${taskId}/approve`, { method: "POST" }),
+  runCodexTask: (taskId: number) =>
+    request<CodexTask>(`/codex-tasks/${taskId}/run`, { method: "POST" }),
+  markCodexTaskFailed: (taskId: number) =>
+    request<CodexTask>(`/codex-tasks/${taskId}/mark-failed`, { method: "POST" }),
+  resetCodexTaskReady: (taskId: number) =>
+    request<CodexTask>(`/codex-tasks/${taskId}/reset-ready`, { method: "POST" }),
   listRepositories: (projectId?: number | null) =>
     request<Repository[]>(projectId == null ? "/repositories" : `/repositories?project_id=${projectId}`),
   registerRepository: (payload: { name: string; path: string; description: string; project_id: number | null }) =>

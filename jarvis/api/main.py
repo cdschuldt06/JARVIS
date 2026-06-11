@@ -7,6 +7,9 @@ from jarvis.api.schemas import (
     ChatRequest,
     ChatResponse,
     ConversationSessionRead,
+    CodexTaskBriefUpdate,
+    CodexTaskCreate,
+    CodexTaskRead,
     DecisionCreate,
     DecisionRead,
     HandoffCreate,
@@ -29,6 +32,7 @@ from jarvis.api.schemas import (
     TaskUpdate,
     UsageDashboardRead,
 )
+from jarvis.codex_tasks.service import CodexTaskService
 from jarvis.core.config import get_settings
 from jarvis.database.session import get_db, init_db
 from jarvis.handoffs.service import HandoffService
@@ -202,3 +206,48 @@ def create_handoff(payload: HandoffCreate, db: Session = Depends(get_db)) -> Han
     if payload.project_id is None:
         raise HTTPException(status_code=422, detail="Codex handoff generation requires a Current Project. Select a project before generating a handoff.")
     return HandoffService(db).create_handoff(payload.user_request, payload.project_id)
+
+
+@app.get("/codex-tasks", response_model=list[CodexTaskRead])
+def list_codex_tasks(project_id: int | None = None, db: Session = Depends(get_db)) -> list[CodexTaskRead]:
+    return CodexTaskService(db).list_tasks(project_id)
+
+
+@app.post("/codex-tasks", response_model=CodexTaskRead)
+def create_codex_task(payload: CodexTaskCreate, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).create_task(
+        project_id=payload.project_id,
+        user_request=payload.user_request,
+        title=payload.title,
+        sandbox_mode=payload.sandbox_mode,
+    )
+
+
+@app.get("/codex-tasks/{task_id}", response_model=CodexTaskRead)
+def read_codex_task(task_id: int, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).read_task(task_id)
+
+
+@app.post("/codex-tasks/{task_id}/approve", response_model=CodexTaskRead)
+def approve_codex_task(task_id: int, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).approve_task(task_id)
+
+
+@app.patch("/codex-tasks/{task_id}/brief", response_model=CodexTaskRead)
+def update_codex_task_brief(task_id: int, payload: CodexTaskBriefUpdate, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).update_brief(task_id, payload.generated_brief)
+
+
+@app.post("/codex-tasks/{task_id}/run", response_model=CodexTaskRead)
+def run_codex_task(task_id: int, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).run_task(task_id)
+
+
+@app.post("/codex-tasks/{task_id}/mark-failed", response_model=CodexTaskRead)
+def mark_codex_task_failed(task_id: int, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).mark_failed(task_id)
+
+
+@app.post("/codex-tasks/{task_id}/reset-ready", response_model=CodexTaskRead)
+def reset_codex_task_ready(task_id: int, db: Session = Depends(get_db)) -> CodexTaskRead:
+    return CodexTaskService(db).reset_to_ready(task_id)

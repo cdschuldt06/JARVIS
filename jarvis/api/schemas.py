@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from jarvis.database.models import HandoffStatus, ProjectStatus, TaskPriority, TaskStatus
+from jarvis.database.models import CodexExecutionMode, CodexSandboxMode, CodexTaskStatus, HandoffStatus, ProjectStatus, TaskPriority, TaskStatus
 
 
 class ChatRequest(BaseModel):
@@ -27,6 +27,7 @@ class ToolActivityRead(BaseModel):
     handoff_generated: bool = False
     research_saved: bool = False
     repository_retrieved: bool = False
+    codex_task_created: bool = False
     news_provider_used: str | None = None
     market_provider_used: str | None = None
     research_fallback_used: bool = False
@@ -234,3 +235,35 @@ class HandoffRead(BaseModel):
     brief: str
     status: HandoffStatus
     created_at: datetime
+
+
+class CodexTaskCreate(BaseModel):
+    user_request: str = Field(min_length=1)
+    project_id: int | None = None
+    title: str | None = Field(default=None, max_length=200)
+    sandbox_mode: CodexSandboxMode | None = None
+
+
+class CodexTaskBriefUpdate(BaseModel):
+    generated_brief: str = Field(min_length=1)
+
+
+class CodexTaskRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    project_id: int | None
+    title: str
+    user_request: str
+    generated_brief: str
+    status: CodexTaskStatus
+    execution_mode: CodexExecutionMode
+    sandbox_mode: CodexSandboxMode
+    codex_command: str
+    codex_stdout: str
+    codex_stderr: str
+    codex_result_summary: str
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None

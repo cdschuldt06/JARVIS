@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import { Activity, Brain, ClipboardList, DollarSign, FileText, GitBranch, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
-import { ChatSession, Handoff, Memory, Project, Repository, RepositoryKnowledge, ResearchResult, Task, ToolActivity, UsageDashboard, api } from "@/lib/api";
+import { ChatSession, CodexTask, Memory, Project, Repository, RepositoryKnowledge, ResearchResult, Task, ToolActivity, UsageDashboard, api } from "@/lib/api";
 import { BrowserSpeechRecognition, ChatInputMode, VoiceSpeed, VOICE_SPEED_RATES, createSpeechRecognition, formatAssistantResponseForSpeech, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, pauseSpeaking, resumeSpeaking, speakText, stopSpeaking } from "@/lib/voice";
 
 type View = "chat" | "research" | "tasks" | "memory" | "handoffs" | "repositories" | "usage";
@@ -16,7 +16,7 @@ const views: Array<{ id: View; label: string; icon: ComponentType<{ size?: numbe
   { id: "research", label: "Research", icon: Search },
   { id: "tasks", label: "Tasks", icon: ClipboardList },
   { id: "memory", label: "Memory", icon: Brain },
-  { id: "handoffs", label: "Handoffs", icon: FileText },
+  { id: "handoffs", label: "Codex", icon: FileText },
   { id: "repositories", label: "Repositories", icon: GitBranch },
   { id: "usage", label: "Usage", icon: DollarSign },
 ];
@@ -27,23 +27,23 @@ export default function Home() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [memory, setMemory] = useState<Memory | null>(null);
-  const [handoffs, setHandoffs] = useState<Handoff[]>([]);
+  const [codexTasks, setCodexTasks] = useState<CodexTask[]>([]);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
   async function refreshAll() {
     setError("");
     try {
-      const [projectData, taskData, memoryData, handoffData] = await Promise.all([
+      const [projectData, taskData, memoryData, codexTaskData] = await Promise.all([
         api.listProjects(),
         api.listTasks(),
         api.getMemory(),
-        api.listHandoffs(),
+        api.listCodexTasks(),
       ]);
       setProjects(projectData);
       setTasks(taskData);
       setMemory(memoryData);
-      setHandoffs(handoffData);
+      setCodexTasks(codexTaskData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to reach Jarvis API.");
     }
@@ -58,9 +58,9 @@ export default function Home() {
       projects: projects.length,
       tasks: tasks.length,
       decisions: memory?.decisions.length ?? 0,
-      handoffs: handoffs.length,
+      codexTasks: codexTasks.length,
     }),
-    [handoffs.length, memory?.decisions.length, projects.length, tasks.length],
+    [codexTasks.length, memory?.decisions.length, projects.length, tasks.length],
   );
   const currentProject = projects.find((project) => String(project.id) === selectedProjectId);
   const currentProjectId = selectedProjectId ? Number(selectedProjectId) : null;
@@ -71,7 +71,7 @@ export default function Home() {
         <header className="flex flex-col gap-4 border-b border-line pb-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h1 className="text-2xl font-semibold tracking-normal text-ink">Jarvis</h1>
-            <p className="mt-1 text-sm text-ink/65">Planner, memory, tasks, and Codex handoffs.</p>
+            <p className="mt-1 text-sm text-ink/65">Planner, memory, tasks, and Codex execution.</p>
           </div>
           <button
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink shadow-sm transition hover:border-pine"
@@ -87,7 +87,7 @@ export default function Home() {
           <Metric label="Projects" value={counts.projects} />
           <Metric label="Tasks" value={counts.tasks} />
           <Metric label="Decisions" value={counts.decisions} />
-          <Metric label="Handoffs" value={counts.handoffs} />
+          <Metric label="Codex Tasks" value={counts.codexTasks} />
         </section>
 
         <section className="flex flex-col gap-3 border-b border-line py-4 lg:flex-row lg:items-end lg:justify-between">
@@ -142,7 +142,7 @@ export default function Home() {
             {activeView === "research" ? <ResearchPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "tasks" ? <TasksPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} tasks={tasks} refreshAll={refreshAll} /> : null}
             {activeView === "memory" ? <MemoryPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} projects={projects} memory={memory} refreshAll={refreshAll} /> : null}
-            {activeView === "handoffs" ? <HandoffsPanel currentProjectId={currentProjectId} handoffs={handoffs} refreshAll={refreshAll} /> : null}
+            {activeView === "handoffs" ? <CodexPanel currentProjectId={currentProjectId} codexTasks={codexTasks} refreshAll={refreshAll} /> : null}
             {activeView === "repositories" ? <RepositoriesPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} /> : null}
             {activeView === "usage" ? <UsagePanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} /> : null}
           </section>
@@ -561,7 +561,6 @@ function ToolActivityPanel({ activity }: { activity: ToolActivity | null }) {
         <ActivityItem label="News Provider" active={Boolean(activity?.news_provider_used)} detail={activity?.news_provider_used ?? "No"} />
         <ActivityItem label="Market Provider" active={Boolean(activity?.market_provider_used)} detail={activity?.market_provider_used ?? "No"} />
         <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_fallback_used ? "Fallback" : activity?.research_performed ? "Yes" : "No"} />
-        <ActivityItem label="Handoff Generated" active={Boolean(activity?.handoff_generated)} detail={activity?.handoff_generated ? "Yes" : "No"} />
       </div>
       {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Fresh research saved to the current project.</div> : null}
       {activity?.market_context ? (
@@ -602,11 +601,11 @@ function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
   const labels = [];
   if (activity.memory_retrieved) labels.push("memory");
   if (activity.repository_retrieved) labels.push("repository context");
+  if (activity.codex_task_created) labels.push("Codex task");
   if (activity.news_provider_used) labels.push(activity.news_provider_used);
   if (activity.market_provider_used) labels.push(activity.market_provider_used);
   if (activity.research_performed) labels.push("research");
   if (activity.research_fallback_used) labels.push("OpenAI research fallback");
-  if (activity.handoff_generated) labels.push("handoff");
   if (activity.research_saved) labels.push("saved research");
   if (labels.length === 0) return null;
   return <div className="mt-2 border-t border-line pt-2 text-xs uppercase text-ink/45">Used {labels.join(", ")}</div>;
@@ -614,7 +613,7 @@ function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
 
 function chatRequestStatus(message: string): string {
   const text = message.toLowerCase();
-  const isHandoff = ["codex brief", "implementation brief", "codex handoff", "handoff"].some((term) => text.includes(term));
+  const isCodexTask = ["create a codex task", "create codex task", "make a codex task", "add a codex task", "codex brief", "implementation brief", "codex handoff", "handoff"].some((term) => text.includes(term));
   const usesResearch = ["research", "latest", "news", "today", "current", "look up", "web", "search"].some((term) => text.includes(term));
   const handoffNeedsResearch = [
     "ai",
@@ -638,8 +637,8 @@ function chatRequestStatus(message: string): string {
     "websocket",
   ].some((term) => text.includes(term));
 
-  if (isHandoff && (usesResearch || handoffNeedsResearch)) return "Researching and preparing Codex brief...";
-  if (isHandoff) return "Generating Codex brief...";
+  if (isCodexTask && (usesResearch || handoffNeedsResearch)) return "Researching and creating Codex task...";
+  if (isCodexTask) return "Creating Codex task...";
   if (["market", "markets", "spy", "qqq", "dia", "vix", "btc", "bitcoin", "stocks"].some((term) => text.includes(term))) return "Checking market data...";
   if (["news", "headlines"].some((term) => text.includes(term))) return "Checking RSS headlines...";
   if (usesResearch) return "Looking into that with web research...";
@@ -937,45 +936,243 @@ function MemoryPanel({
   );
 }
 
-function HandoffsPanel({ currentProjectId, handoffs, refreshAll }: { currentProjectId: number | null; handoffs: Handoff[]; refreshAll: () => Promise<void> }) {
-  const [request, setRequest] = useState("");
+function CodexPanel({
+  currentProjectId,
+  codexTasks,
+  refreshAll,
+}: {
+  currentProjectId: number | null;
+  codexTasks: CodexTask[];
+  refreshAll: () => Promise<void>;
+}) {
+  const [taskRequest, setTaskRequest] = useState("");
+  const [taskSandbox, setTaskSandbox] = useState<"read_only" | "workspace_write">("read_only");
+  const [briefDrafts, setBriefDrafts] = useState<Record<number, string>>({});
   const [localError, setLocalError] = useState("");
-  const scopedHandoffs = handoffs.filter((handoff) => handoff.project_id === currentProjectId);
+  const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
+  const scopedCodexTasks = codexTasks.filter((task) => task.project_id === currentProjectId);
 
-  async function createHandoff(event: FormEvent) {
+  async function createCodexTask(event: FormEvent) {
     event.preventDefault();
     setLocalError("");
     if (currentProjectId === null) {
-      setLocalError("Select a Current Project before generating a Codex handoff.");
+      setLocalError("Select a Current Project before creating a Codex task.");
       return;
     }
-    if (!request.trim()) return;
-    await api.createHandoff({ user_request: request, project_id: currentProjectId });
-    setRequest("");
+    if (!taskRequest.trim()) return;
+    await api.createCodexTask({
+      user_request: taskRequest.trim(),
+      project_id: currentProjectId,
+      sandbox_mode: taskSandbox,
+    });
+    setTaskRequest("");
+    setTaskSandbox("read_only");
     await refreshAll();
+  }
+
+  async function saveCodexTaskBrief(task: CodexTask) {
+    setLocalError("");
+    const generatedBrief = (briefDrafts[task.id] ?? task.generated_brief).trim();
+    if (!generatedBrief) {
+      setLocalError("Brief cannot be empty.");
+      return;
+    }
+    setBusyTaskId(task.id);
+    try {
+      await api.updateCodexTaskBrief(task.id, generatedBrief);
+      setBriefDrafts((current) => {
+        const next = { ...current };
+        delete next[task.id];
+        return next;
+      });
+      await refreshAll();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to save Codex task brief.");
+      await refreshAll();
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function approveCodexTask(task: CodexTask) {
+    setLocalError("");
+    setBusyTaskId(task.id);
+    try {
+      await api.approveCodexTask(task.id);
+      await refreshAll();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to approve Codex task.");
+      await refreshAll();
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function runCodexTask(task: CodexTask) {
+    setLocalError("");
+    const warning =
+      task.sandbox_mode === "workspace_write"
+        ? "This will run Codex with workspace-write access. Review the generated brief before continuing."
+        : "This will run Codex in read-only mode and capture the result.";
+    if (!window.confirm(warning)) return;
+    setBusyTaskId(task.id);
+    try {
+      await api.runCodexTask(task.id);
+      await refreshAll();
+    } catch (err) {
+      setLocalError(err instanceof Error ? `Codex run failed or timed out: ${err.message}` : "Unable to run Codex task.");
+      await refreshAll();
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function markCodexTaskFailed(task: CodexTask) {
+    setLocalError("");
+    if (!window.confirm("Mark this running Codex task as failed? Use this only when the process is stuck or the browser lost the response.")) return;
+    setBusyTaskId(task.id);
+    try {
+      await api.markCodexTaskFailed(task.id);
+      await refreshAll();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to mark Codex task failed.");
+      await refreshAll();
+    } finally {
+      setBusyTaskId(null);
+    }
+  }
+
+  async function resetCodexTaskReady(task: CodexTask) {
+    setLocalError("");
+    if (!window.confirm("Reset this Codex task to ready? It will require approval before it can run again.")) return;
+    setBusyTaskId(task.id);
+    try {
+      await api.resetCodexTaskReady(task.id);
+      await refreshAll();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Unable to reset Codex task.");
+      await refreshAll();
+    } finally {
+      setBusyTaskId(null);
+    }
   }
 
   return (
     <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-      <form onSubmit={createHandoff} className="rounded-md border border-line bg-white p-4">
-        <h2 className="text-base font-semibold text-ink">Codex Brief</h2>
-        <Field label="Request" value={request} onChange={setRequest} multiline />
-        <p className="mt-3 text-sm text-ink/60">Uses the current project selected at the top of the dashboard.</p>
-        {localError ? <p className="mt-3 rounded-md border border-signal/40 px-3 py-2 text-sm text-signal">{localError}</p> : null}
-        <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white" title="Generate brief">
-          <FileText size={16} />
-          Generate
-        </button>
-      </form>
+      <div className="space-y-4">
+        <form onSubmit={createCodexTask} className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Codex Task</h2>
+          <Field label="Request" value={taskRequest} onChange={setTaskRequest} multiline />
+          <label className="mt-3 block text-sm font-medium text-ink/70">
+            Sandbox
+            <select
+              className="mt-1 h-10 w-full rounded-md border border-line bg-white px-2 text-sm"
+              value={taskSandbox}
+              onChange={(event) => setTaskSandbox(event.target.value as "read_only" | "workspace_write")}
+            >
+              <option value="read_only">Read only</option>
+              <option value="workspace_write">Workspace write</option>
+            </select>
+          </label>
+          {taskSandbox === "workspace_write" ? <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">Workspace-write tasks can edit files. Approval and a separate Run click are still required.</p> : null}
+          <button className="mt-4 inline-flex h-10 items-center gap-2 rounded-md bg-pine px-3 text-sm font-medium text-white" title="Create Codex task">
+            <Plus size={16} />
+            Generate Brief & Create Task
+          </button>
+        </form>
+        {localError ? <p className="rounded-md border border-signal/40 bg-white px-3 py-2 text-sm text-signal">{localError}</p> : null}
+      </div>
 
       <div className="space-y-3">
-        {scopedHandoffs.length === 0 ? <p className="rounded-md border border-line bg-white p-4 text-sm text-ink/55">No handoffs for the current project.</p> : null}
-        {scopedHandoffs.map((handoff) => (
-          <article key={handoff.id} className="rounded-md border border-line bg-white p-4">
-            <div className="mb-3 text-xs uppercase text-ink/50">{handoff.status}</div>
-            <pre className="whitespace-pre-wrap text-sm leading-6 text-ink">{handoff.brief}</pre>
-          </article>
-        ))}
+        <section className="rounded-md border border-line bg-white p-4">
+          <h2 className="text-base font-semibold text-ink">Executable Tasks</h2>
+          <div className="mt-3 space-y-3">
+            {scopedCodexTasks.length === 0 ? <p className="text-sm text-ink/55">No Codex tasks for the current project.</p> : null}
+            {scopedCodexTasks.map((task) => (
+              <article key={task.id} className="border-t border-line pt-3 first:border-t-0 first:pt-0">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-xs uppercase text-ink/45">{task.status} - {task.sandbox_mode.replace("_", " ")}</div>
+                    <h3 className="mt-1 text-sm font-semibold text-ink">{task.title}</h3>
+                    <p className="mt-1 text-sm text-ink/65">{task.user_request}</p>
+                    <p className="mt-2 text-xs text-ink/45">
+                      Started {task.started_at ?? "not started"} · Updated {task.updated_at} · Completed {task.completed_at ?? "not completed"}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <button
+                      className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:opacity-50"
+                      type="button"
+                      disabled={busyTaskId === task.id || task.status === "running" || task.status === "completed" || task.status === "approved"}
+                      onClick={() => approveCodexTask(task)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="h-9 rounded-md bg-pine px-3 text-sm font-medium text-white disabled:opacity-50"
+                      type="button"
+                      disabled={busyTaskId === task.id || task.status !== "approved"}
+                      onClick={() => runCodexTask(task)}
+                    >
+                      {busyTaskId === task.id ? "Running..." : "Run"}
+                    </button>
+                    {task.status === "running" ? (
+                      <button
+                        className="h-9 rounded-md border border-signal/40 bg-white px-3 text-sm font-medium text-signal transition hover:border-signal disabled:opacity-50"
+                        type="button"
+                        disabled={busyTaskId === task.id}
+                        onClick={() => markCodexTaskFailed(task)}
+                      >
+                        Mark failed
+                      </button>
+                    ) : null}
+                    {["running", "failed", "timed_out", "blocked", "completed"].includes(task.status) ? (
+                      <button
+                        className="h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:opacity-50"
+                        type="button"
+                        disabled={busyTaskId === task.id}
+                        onClick={() => resetCodexTaskReady(task)}
+                      >
+                        Reset to ready
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-pine">Task brief</summary>
+                  {["draft", "ready", "failed", "timed_out", "blocked"].includes(task.status) ? (
+                    <div className="mt-2">
+                      <textarea
+                        className="min-h-72 w-full resize-y rounded-md border border-line bg-field p-3 text-sm leading-6 text-ink"
+                        value={briefDrafts[task.id] ?? task.generated_brief}
+                        onChange={(event) => setBriefDrafts((current) => ({ ...current, [task.id]: event.target.value }))}
+                      />
+                      <button
+                        className="mt-2 h-9 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:opacity-50"
+                        type="button"
+                        disabled={busyTaskId === task.id || (briefDrafts[task.id] ?? task.generated_brief) === task.generated_brief}
+                        onClick={() => saveCodexTaskBrief(task)}
+                      >
+                        Save Brief
+                      </button>
+                    </div>
+                  ) : (
+                    <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-field p-3 text-sm leading-6 text-ink">{task.generated_brief}</pre>
+                  )}
+                </details>
+                {(task.codex_result_summary || task.codex_stdout || task.codex_stderr) ? (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-sm font-medium text-pine">Execution output</summary>
+                    {task.codex_result_summary ? <pre className="mt-2 whitespace-pre-wrap rounded-md bg-field p-3 text-sm leading-6 text-ink">{task.codex_result_summary}</pre> : null}
+                    {task.codex_stdout ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md bg-field p-3 text-xs leading-5 text-ink/75">{task.codex_stdout}</pre> : null}
+                    {task.codex_stderr ? <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-signal/30 bg-white p-3 text-xs leading-5 text-signal">{task.codex_stderr}</pre> : null}
+                  </details>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+
       </div>
     </div>
   );

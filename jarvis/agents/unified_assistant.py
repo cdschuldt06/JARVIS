@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from jarvis.codex_tasks.service import CodexTaskService
 from jarvis.database.models import ConversationMessage
-from jarvis.handoffs.service import HandoffService
 from jarvis.markets.service import MarketService
 from jarvis.llm import OpenAIClient
 from jarvis.memory.retrieval import MemoryRetrievalService, RetrievedMemory
@@ -17,7 +17,7 @@ from jarvis.tools.router import ToolAction, ToolRouter
 
 
 SYSTEM_PROMPT = """You are Jarvis, a persistent personal AI operating system.
-You are one unified assistant across chat, memory, research, and implementation briefs.
+You are one unified assistant across chat, memory, research, and Codex tasks.
 Use retrieved context when it is relevant. Do not invent memory or repository components that are not present.
 Do not expose retrieved context mechanically. Only surface repository, project, memory, task, decision, or research context when it directly helps answer the user's request.
 When repository context is available, treat it as the current implementation and keep it separate from project memory, decisions, research, and future plans.
@@ -36,6 +36,7 @@ class ToolActivity:
     handoff_generated: bool = False
     research_saved: bool = False
     repository_retrieved: bool = False
+    codex_task_created: bool = False
     news_provider_used: str | None = None
     market_provider_used: str | None = None
     research_fallback_used: bool = False
@@ -58,10 +59,10 @@ class UnifiedAssistant:
         self.memory = MemoryService(db)
         self.retrieval = MemoryRetrievalService(db)
         self.repositories = RepositoryService(db)
+        self.codex_tasks = CodexTaskService(db)
         self.news = NewsService(db)
         self.markets = MarketService(db)
         self.research = ResearchService(db)
-        self.handoffs = HandoffService(db)
         self.router = ToolRouter()
         self.llm = llm or OpenAIClient(db)
 
@@ -91,31 +92,30 @@ class UnifiedAssistant:
             self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
             return UnifiedAssistantResult(user_record.conversation_id, response_text, activity)
 
-        if route.uses(ToolAction.HANDOFF_GENERATION):
+        if route.uses(ToolAction.CODEX_TASK_RUN_REQUEST):
+            response_text = (
+                "Codex tasks require explicit approval and a direct Run action in the Codex tab. "
+                "Open the Codex task, review the generated brief and sandbox mode, approve it, then run it there."
+            )
+            activity = ToolActivity(actions=[action.value for action in route.actions], model="deterministic")
+            self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
+            return UnifiedAssistantResult(user_record.conversation_id, response_text, activity)
+
+        if route.uses(ToolAction.CODEX_TASK):
             if project_id is None:
-                response_text = "Select a Current Project before generating a Codex brief."
-                activity = ToolActivity(actions=[action.value for action in route.actions], model=self.research.model)
+                response_text = "Select a Current Project before creating a Codex task."
+                activity = ToolActivity(actions=[action.value for action in route.actions], model="deterministic")
             else:
-                research_sources: list[str] = []
-                if route.uses(ToolAction.RESEARCH):
-                    research_result = self.research.run_research(user_message, project_id, include_project_context=True)
-                    research_sources = list(research_result["sources"])
-                    self.research.save_research(
-                        title=f"Fresh research: {user_message[:160]}",
-                        summary=str(research_result["summary"]),
-                        sources=research_sources,
-                        project_id=project_id,
-                    )
-                handoff = self.handoffs.create_handoff(user_message, project_id)
-                response_text = f"Generated a Codex implementation brief for the current project.\n\n{handoff.brief}"
+                task_request = self._codex_task_request(user_message)
+                task = self.codex_tasks.create_task(project_id=project_id, user_request=task_request)
+                response_text = (
+                    f"Created Codex task #{task.id}: {task.title}\n\n"
+                    "It is ready for review. Approve and run it from the Codex tab; Jarvis will not execute it automatically."
+                )
                 activity = ToolActivity(
                     actions=[action.value for action in route.actions],
-                    model=self.research.model if route.uses(ToolAction.RESEARCH) else "deterministic",
-                    memory_retrieved=True,
-                    research_performed=route.uses(ToolAction.RESEARCH),
-                    handoff_generated=True,
-                    research_saved=route.uses(ToolAction.RESEARCH),
-                    sources=research_sources,
+                    model="deterministic",
+                    codex_task_created=True,
                 )
             self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
             return UnifiedAssistantResult(user_record.conversation_id, response_text, activity)
@@ -339,3 +339,17 @@ class UnifiedAssistant:
     def _research_title(self, text: str) -> str:
         first_line = next((line.strip("# -") for line in text.splitlines() if line.strip()), "Saved research")
         return f"Saved research: {first_line[:80]}"
+
+    def _codex_task_request(self, user_message: str) -> str:
+        cleaned = " ".join(user_message.strip().split())
+        lowered = cleaned.lower()
+        prefixes = (
+            "create a codex task for ",
+            "create codex task for ",
+            "make a codex task for ",
+            "add a codex task for ",
+        )
+        for prefix in prefixes:
+            if lowered.startswith(prefix):
+                return cleaned[len(prefix) :].strip() or cleaned
+        return cleaned
