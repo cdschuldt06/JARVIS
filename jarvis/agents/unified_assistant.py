@@ -80,13 +80,26 @@ class UnifiedAssistant:
                 response_text = "Select a Current Project before generating a Codex brief."
                 activity = ToolActivity(actions=[action.value for action in route.actions], model=self.research.model)
             else:
+                research_sources: list[str] = []
+                if route.uses(ToolAction.RESEARCH):
+                    research_result = self.research.run_research(user_message, project_id)
+                    research_sources = list(research_result["sources"])
+                    self.research.save_research(
+                        title=f"Fresh research: {user_message[:160]}",
+                        summary=str(research_result["summary"]),
+                        sources=research_sources,
+                        project_id=project_id,
+                    )
                 handoff = self.handoffs.create_handoff(user_message, project_id)
                 response_text = f"Generated a Codex implementation brief for the current project.\n\n{handoff.brief}"
                 activity = ToolActivity(
                     actions=[action.value for action in route.actions],
-                    model="deterministic",
+                    model=self.research.model if route.uses(ToolAction.RESEARCH) else "deterministic",
                     memory_retrieved=True,
+                    research_performed=route.uses(ToolAction.RESEARCH),
                     handoff_generated=True,
+                    research_saved=route.uses(ToolAction.RESEARCH),
+                    sources=research_sources,
                 )
             self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
             return UnifiedAssistantResult(user_record.conversation_id, response_text, activity)

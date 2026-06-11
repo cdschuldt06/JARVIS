@@ -170,6 +170,7 @@ function ChatPanel({
   const [message, setMessage] = useState("");
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [lastActivity, setLastActivity] = useState<ToolActivity | null>(null);
+  const [requestStatus, setRequestStatus] = useState("");
   const [speechRecognitionAvailable, setSpeechRecognitionAvailable] = useState(false);
   const [speechSynthesisAvailable, setSpeechSynthesisAvailable] = useState(false);
   const [listening, setListening] = useState(false);
@@ -191,6 +192,7 @@ function ChatPanel({
     const trimmed = outgoing.trim();
     setMessage("");
     setVoiceStatus("");
+    setRequestStatus(chatRequestStatus(trimmed));
     setLines((current) => [...current, { role: "user", content: trimmed }]);
     setLoading(true);
     try {
@@ -202,6 +204,7 @@ function ChatPanel({
       await refreshAll();
     } finally {
       setLoading(false);
+      setRequestStatus("");
     }
   }
 
@@ -252,9 +255,13 @@ function ChatPanel({
         </label>
         {!speechRecognitionAvailable ? <p className="mt-2 text-sm text-ink/55">Voice input is not available in this browser. Typed chat still works.</p> : null}
         {voiceStatus ? <p className="mt-2 text-sm text-ink/65">{voiceStatus}</p> : null}
+        {loading && requestStatus ? <p className="mt-2 text-sm font-medium text-pine">{requestStatus}</p> : null}
       </div>
       <div className="space-y-3 overflow-y-auto p-4">
         {lines.length === 0 ? <div className="text-sm text-ink/55">No messages yet.</div> : null}
+        {loading && requestStatus ? (
+          <div className="max-w-3xl rounded-md bg-field px-3 py-2 text-sm font-medium text-pine">{requestStatus}</div>
+        ) : null}
         {lines.map((line, index) => (
           <div key={`${line.role}-${index}`} className={`max-w-3xl rounded-md px-3 py-2 text-sm ${line.role === "user" ? "ml-auto bg-pine text-white" : "bg-field text-ink"}`}>
             <div className="whitespace-pre-wrap">{line.content}</div>
@@ -301,7 +308,7 @@ function ToolActivityPanel({ activity }: { activity: ToolActivity | null }) {
         <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_performed ? "Yes" : "No"} />
         <ActivityItem label="Handoff Generated" active={Boolean(activity?.handoff_generated)} detail={activity?.handoff_generated ? "Yes" : "No"} />
       </div>
-      {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Research saved to the current project.</div> : null}
+      {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Fresh research saved to the current project.</div> : null}
     </div>
   );
 }
@@ -323,6 +330,38 @@ function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
   if (activity.research_saved) labels.push("saved research");
   if (labels.length === 0) return null;
   return <div className="mt-2 border-t border-line pt-2 text-xs uppercase text-ink/45">Used {labels.join(", ")}</div>;
+}
+
+function chatRequestStatus(message: string): string {
+  const text = message.toLowerCase();
+  const isHandoff = ["codex brief", "implementation brief", "codex handoff", "handoff"].some((term) => text.includes(term));
+  const usesResearch = ["research", "latest", "news", "today", "current", "look up", "web", "search"].some((term) => text.includes(term));
+  const handoffNeedsResearch = [
+    "ai",
+    "api",
+    "audio",
+    "browser",
+    "framework",
+    "integration",
+    "latest",
+    "library",
+    "model",
+    "openai",
+    "realtime",
+    "sdk",
+    "speech",
+    "technical",
+    "transcription",
+    "tts",
+    "voice",
+    "wake word",
+    "websocket",
+  ].some((term) => text.includes(term));
+
+  if (isHandoff && (usesResearch || handoffNeedsResearch)) return "Researching and preparing Codex brief...";
+  if (isHandoff) return "Generating Codex brief...";
+  if (usesResearch) return "Looking into that with web research...";
+  return "Thinking...";
 }
 
 function ResearchPanel({

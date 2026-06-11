@@ -23,6 +23,29 @@ class ToolRoute:
 class ToolRouter:
     research_terms = ("research", "latest", "news", "today", "current", "look up", "web", "search")
     handoff_terms = ("codex brief", "implementation brief", "codex handoff", "handoff")
+    handoff_research_terms = (
+        "ai",
+        "api",
+        "audio",
+        "browser",
+        "current",
+        "framework",
+        "integration",
+        "latest",
+        "library",
+        "model",
+        "openai",
+        "realtime",
+        "research",
+        "sdk",
+        "speech",
+        "technical",
+        "transcription",
+        "tts",
+        "voice",
+        "wake word",
+        "websocket",
+    )
     save_research_terms = ("save that research", "save this research", "store that research", "store this research")
 
     def route(self, user_request: str, project_id: int | None = None) -> ToolRoute:
@@ -33,8 +56,11 @@ class ToolRouter:
             return ToolRoute((ToolAction.SAVE_RESEARCH,), "chat")
 
         if self._contains_any(text, self.handoff_terms):
-            actions.extend((ToolAction.HANDOFF_GENERATION, ToolAction.MEMORY_RETRIEVAL, ToolAction.RESEARCH))
-            return ToolRoute(tuple(dict.fromkeys(actions)), "research")
+            actions.extend((ToolAction.HANDOFF_GENERATION, ToolAction.MEMORY_RETRIEVAL))
+            if self._contains_any(text, self.handoff_research_terms):
+                actions.append(ToolAction.RESEARCH)
+            model_purpose = "research" if ToolAction.RESEARCH in actions else "chat"
+            return ToolRoute(tuple(dict.fromkeys(actions)), model_purpose)
 
         actions.append(ToolAction.CHAT)
         if project_id is not None:
