@@ -27,6 +27,10 @@ class ToolActivityRead(BaseModel):
     handoff_generated: bool = False
     research_saved: bool = False
     repository_retrieved: bool = False
+    news_provider_used: str | None = None
+    market_provider_used: str | None = None
+    research_fallback_used: bool = False
+    market_context: dict[str, object] | None = None
     memory_counts: dict[str, int] | None = None
     repository_context: dict[str, object] | None = None
     sources: list[str] | None = None

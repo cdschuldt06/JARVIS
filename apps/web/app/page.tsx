@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import { Activity, Brain, ClipboardList, DollarSign, FileText, GitBranch, MessageSquare, Mic, Plus, RefreshCw, Save, Search, Send, Volume2 } from "lucide-react";
 import { ChatSession, Handoff, Memory, Project, Repository, RepositoryKnowledge, ResearchResult, Task, ToolActivity, UsageDashboard, api } from "@/lib/api";
-import { BrowserSpeechRecognition, ChatInputMode, createSpeechRecognition, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, speakText } from "@/lib/voice";
+import { BrowserSpeechRecognition, ChatInputMode, VoiceSpeed, VOICE_SPEED_RATES, createSpeechRecognition, formatAssistantResponseForSpeech, isSpeechRecognitionAvailable, isSpeechSynthesisAvailable, pauseSpeaking, resumeSpeaking, speakText, stopSpeaking } from "@/lib/voice";
 
 type View = "chat" | "research" | "tasks" | "memory" | "handoffs" | "repositories" | "usage";
 type ChatLine = { role: "user" | "assistant"; content: string; activity?: ToolActivity | null };
@@ -137,7 +137,7 @@ export default function Home() {
 
           <section className="min-w-0">
             <div className={activeView === "chat" ? "block" : "hidden"}>
-              <ChatPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} loading={loading} setLoading={setLoading} refreshAll={refreshAll} />
+              <ChatPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} isActive={activeView === "chat"} loading={loading} setLoading={setLoading} refreshAll={refreshAll} />
             </div>
             {activeView === "research" ? <ResearchPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} memory={memory} refreshAll={refreshAll} /> : null}
             {activeView === "tasks" ? <TasksPanel currentProjectId={currentProjectId} currentProjectName={currentProject?.name} tasks={tasks} refreshAll={refreshAll} /> : null}
@@ -164,12 +164,14 @@ function Metric({ label, value }: { label: string; value: number }) {
 function ChatPanel({
   currentProjectId,
   currentProjectName,
+  isActive,
   loading,
   setLoading,
   refreshAll,
 }: {
   currentProjectId: number | null;
   currentProjectName?: string;
+  isActive: boolean;
   loading: boolean;
   setLoading: (value: boolean) => void;
   refreshAll: () => Promise<void>;
@@ -189,6 +191,8 @@ function ChatPanel({
   const [listening, setListening] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState("");
   const [speakResponses, setSpeakResponses] = useState(false);
+  const [voiceSpeed, setVoiceSpeed] = useState<VoiceSpeed>("normal");
+  const [speechStatus, setSpeechStatus] = useState<"idle" | "speaking" | "paused">("idle");
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   useEffect(() => {
@@ -196,9 +200,17 @@ function ChatPanel({
     setSpeechSynthesisAvailable(isSpeechSynthesisAvailable());
     return () => {
       recognitionRef.current?.abort();
-      if (isSpeechSynthesisAvailable()) window.speechSynthesis.cancel();
+      stopSpeech();
     };
   }, []);
+
+  useEffect(() => {
+    if (!speakResponses) stopSpeech();
+  }, [speakResponses]);
+
+  useEffect(() => {
+    if (!isActive) stopSpeech();
+  }, [isActive]);
 
   useEffect(() => {
     setConversationId(undefined);
@@ -238,6 +250,7 @@ function ChatPanel({
   async function openConversation(nextConversationId: string) {
     if (loading) return;
     const messages = await api.getChatConversation(nextConversationId, currentProjectId);
+    stopSpeech();
     setConversationId(nextConversationId);
     setLastActivity(null);
     setLines(
@@ -249,6 +262,7 @@ function ChatPanel({
 
   function startNewChat() {
     if (loading) return;
+    stopSpeech();
     setConversationId(undefined);
     setLines([]);
     setLastActivity(null);
@@ -260,6 +274,7 @@ function ChatPanel({
   async function sendMessage(outgoing: string, inputMode: ChatInputMode = "text") {
     if (!outgoing.trim() || loading) return;
     const trimmed = outgoing.trim();
+    stopSpeech();
     setMessage("");
     setVoiceStatus("");
     setRequestStatus(chatRequestStatus(trimmed));
@@ -270,13 +285,39 @@ function ChatPanel({
       setConversationId(result.conversation_id);
       setLastActivity(result.activity);
       setLines((current) => [...current, { role: "assistant", content: result.response, activity: result.activity }]);
-      if (speakResponses) speakText(result.response);
+      if (speakResponses) speakAssistantResponse(result.response);
       await refreshAll();
       await loadSessions();
     } finally {
       setLoading(false);
       setRequestStatus("");
     }
+  }
+
+  function stopSpeech() {
+    stopSpeaking();
+    setSpeechStatus("idle");
+  }
+
+  function pauseSpeech() {
+    pauseSpeaking();
+    setSpeechStatus("paused");
+  }
+
+  function resumeSpeech() {
+    resumeSpeaking();
+    setSpeechStatus("speaking");
+  }
+
+  function speakAssistantResponse(response: string) {
+    const spoken = formatAssistantResponseForSpeech(response);
+    if (!spoken) return;
+    setSpeechStatus("speaking");
+    speakText(spoken, {
+      rate: VOICE_SPEED_RATES[voiceSpeed],
+      onEnd: () => setSpeechStatus("idle"),
+      onError: () => setSpeechStatus("idle"),
+    });
   }
 
   async function submit(event: FormEvent) {
@@ -331,10 +372,59 @@ function ChatPanel({
           </div>
           <ToolActivityPanel activity={lastActivity} />
           <label className="mt-3 flex items-center gap-2 text-sm text-ink/70">
-            <input className="h-4 w-4" type="checkbox" checked={speakResponses} disabled={!speechSynthesisAvailable} onChange={(event) => setSpeakResponses(event.target.checked)} />
+            <input
+              className="h-4 w-4"
+              type="checkbox"
+              checked={speakResponses}
+              disabled={!speechSynthesisAvailable}
+              onChange={(event) => setSpeakResponses(event.target.checked)}
+            />
             <Volume2 size={16} />
             Speak responses
           </label>
+          {speakResponses ? (
+            <label className="mt-3 flex max-w-xs items-center gap-2 text-sm font-medium text-ink/70">
+              Voice speed
+              <select
+                className="h-9 rounded-md border border-line bg-white px-2 text-sm font-medium text-ink outline-none focus:border-pine"
+                value={voiceSpeed}
+                onChange={(event) => setVoiceSpeed(event.target.value as VoiceSpeed)}
+              >
+                <option value="slow">Slow</option>
+                <option value="normal">Normal</option>
+                <option value="fast">Fast</option>
+              </select>
+            </label>
+          ) : null}
+          {speakResponses ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                className="h-8 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+                type="button"
+                disabled={speechStatus === "idle"}
+                onClick={stopSpeech}
+              >
+                Stop Speaking
+              </button>
+              <button
+                className="h-8 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+                type="button"
+                disabled={speechStatus !== "speaking"}
+                onClick={pauseSpeech}
+              >
+                Pause
+              </button>
+              <button
+                className="h-8 rounded-md border border-line bg-white px-3 text-sm font-medium text-ink transition hover:border-pine disabled:cursor-not-allowed disabled:text-ink/35"
+                type="button"
+                disabled={speechStatus !== "paused"}
+                onClick={resumeSpeech}
+              >
+                Resume
+              </button>
+              {speechStatus !== "idle" ? <span className="text-sm text-ink/55">{speechStatus === "paused" ? "Paused" : "Speaking"}</span> : null}
+            </div>
+          ) : null}
           {!speechRecognitionAvailable ? <p className="mt-2 text-sm text-ink/55">Voice input is not available in this browser. Typed chat still works.</p> : null}
           {voiceStatus ? <p className="mt-2 text-sm text-ink/65">{voiceStatus}</p> : null}
           {loading && requestStatus ? <p className="mt-2 text-sm font-medium text-pine">{requestStatus}</p> : null}
@@ -468,10 +558,22 @@ function ToolActivityPanel({ activity }: { activity: ToolActivity | null }) {
       <div className="mt-2 grid gap-2 text-sm text-ink/70 sm:grid-cols-2 lg:grid-cols-4">
         <ActivityItem label="Memory Retrieved" active={Boolean(activity?.memory_retrieved)} detail={activity?.memory_retrieved ? `${memoryCount} items` : "No"} />
         <ActivityItem label="Repository Context" active={Boolean(activity?.repository_retrieved)} detail={activity?.repository_retrieved ? `${repositoryCount} items` : "No"} />
-        <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_performed ? "Yes" : "No"} />
+        <ActivityItem label="News Provider" active={Boolean(activity?.news_provider_used)} detail={activity?.news_provider_used ?? "No"} />
+        <ActivityItem label="Market Provider" active={Boolean(activity?.market_provider_used)} detail={activity?.market_provider_used ?? "No"} />
+        <ActivityItem label="Research Performed" active={Boolean(activity?.research_performed)} detail={activity?.research_fallback_used ? "Fallback" : activity?.research_performed ? "Yes" : "No"} />
         <ActivityItem label="Handoff Generated" active={Boolean(activity?.handoff_generated)} detail={activity?.handoff_generated ? "Yes" : "No"} />
       </div>
       {activity?.research_saved ? <div className="mt-2 text-sm text-ink/70">Fresh research saved to the current project.</div> : null}
+      {activity?.market_context ? (
+        <div className="mt-3 rounded-md border border-line bg-white p-3 text-sm text-ink/70">
+          <div className="text-xs font-medium uppercase text-ink/55">Market Data Used</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-3">
+            <div>Requested: <span className="font-medium text-ink">{activity.market_context.requested_symbols.join(", ") || "None"}</span></div>
+            <div>Returned: <span className="font-medium text-ink">{activity.market_context.returned_symbols.join(", ") || "None"}</span></div>
+            <div>Failed: <span className="font-medium text-ink">{activity.market_context.failed_symbols.join(", ") || "None"}</span></div>
+          </div>
+        </div>
+      ) : null}
       {activity?.repository_context ? (
         <div className="mt-3 rounded-md border border-line bg-white p-3 text-sm text-ink/70">
           <div className="text-xs font-medium uppercase text-ink/55">Repository Answer Grounding</div>
@@ -500,7 +602,10 @@ function MessageActivitySummary({ activity }: { activity: ToolActivity }) {
   const labels = [];
   if (activity.memory_retrieved) labels.push("memory");
   if (activity.repository_retrieved) labels.push("repository context");
+  if (activity.news_provider_used) labels.push(activity.news_provider_used);
+  if (activity.market_provider_used) labels.push(activity.market_provider_used);
   if (activity.research_performed) labels.push("research");
+  if (activity.research_fallback_used) labels.push("OpenAI research fallback");
   if (activity.handoff_generated) labels.push("handoff");
   if (activity.research_saved) labels.push("saved research");
   if (labels.length === 0) return null;
@@ -535,6 +640,8 @@ function chatRequestStatus(message: string): string {
 
   if (isHandoff && (usesResearch || handoffNeedsResearch)) return "Researching and preparing Codex brief...";
   if (isHandoff) return "Generating Codex brief...";
+  if (["market", "markets", "spy", "qqq", "dia", "vix", "btc", "bitcoin", "stocks"].some((term) => text.includes(term))) return "Checking market data...";
+  if (["news", "headlines"].some((term) => text.includes(term))) return "Checking RSS headlines...";
   if (usesResearch) return "Looking into that with web research...";
   return "Thinking...";
 }

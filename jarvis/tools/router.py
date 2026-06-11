@@ -6,6 +6,8 @@ import re
 class ToolAction(str, Enum):
     CHAT = "CHAT"
     MEMORY_RETRIEVAL = "MEMORY_RETRIEVAL"
+    NEWS = "NEWS"
+    MARKET = "MARKET"
     RESEARCH = "RESEARCH"
     HANDOFF_GENERATION = "HANDOFF_GENERATION"
     SAVE_RESEARCH = "SAVE_RESEARCH"
@@ -22,7 +24,49 @@ class ToolRoute:
 
 
 class ToolRouter:
-    research_terms = ("research", "latest", "news", "today", "current", "look up", "web", "search")
+    research_terms = ("research", "latest", "current", "look up", "web", "search")
+    deep_research_terms = ("deep research", "research the", "research impact", "investigate", "analyze the impact")
+    news_terms = (
+        "ai news",
+        "headlines",
+        "in the news",
+        "news today",
+        "top news",
+        "today's news",
+        "todays news",
+        "what happened today",
+        "what's in the news",
+    )
+    market_terms = (
+        "aapl",
+        "alphabet",
+        "amazon",
+        "amd",
+        "amzn",
+        "apple",
+        "googl",
+        "google",
+        "market",
+        "markets",
+        "meta",
+        "microsoft",
+        "msft",
+        "nvda",
+        "nvidia",
+        "spy",
+        "qqq",
+        "dia",
+        "stock",
+        "vix",
+        "tesla",
+        "tsla",
+        "btc",
+        "bitcoin",
+        "stocks",
+        "nasdaq",
+        "dow",
+        "s&p",
+    )
     handoff_terms = ("codex brief", "implementation brief", "codex handoff", "handoff")
     handoff_research_terms = (
         "ai",
@@ -94,7 +138,13 @@ class ToolRouter:
             model_purpose = "research" if ToolAction.RESEARCH in actions else "chat"
             return ToolRoute(tuple(dict.fromkeys(actions)), model_purpose)
 
-        uses_research = self._contains_any(text, self.research_terms)
+        if self._uses_market(text):
+            return ToolRoute((ToolAction.MARKET,), "chat")
+
+        if self._uses_news(text):
+            return ToolRoute((ToolAction.NEWS,), "chat")
+
+        uses_research = self._contains_any(text, self.research_terms) or self._contains_any(text, self.deep_research_terms)
         uses_project_context = self._contains_any(text, self.project_context_terms)
 
         actions.append(ToolAction.CHAT)
@@ -113,3 +163,15 @@ class ToolRouter:
 
     def _contains_any(self, value: str, terms: tuple[str, ...]) -> bool:
         return any(term in value for term in terms)
+
+    def _uses_news(self, value: str) -> bool:
+        if self._contains_any(value, self.deep_research_terms):
+            return False
+        return self._contains_any(value, self.news_terms) or ("news" in value and "research" not in value)
+
+    def _uses_market(self, value: str) -> bool:
+        if self._contains_any(value, self.deep_research_terms):
+            return False
+        if self._contains_any(value, self.market_terms):
+            return any(term in value for term in ("today", "doing", "happened", "market", "markets", "price", "how is", "what's", "check", "tell me about", "stock"))
+        return bool(re.search(r"\b(how is|what'?s|check|tell me about)\s+[a-z0-9. -]{2,20}\b", value))

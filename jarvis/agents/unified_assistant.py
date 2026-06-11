@@ -6,9 +6,11 @@ from sqlalchemy.orm import Session
 
 from jarvis.database.models import ConversationMessage
 from jarvis.handoffs.service import HandoffService
+from jarvis.markets.service import MarketService
 from jarvis.llm import OpenAIClient
 from jarvis.memory.retrieval import MemoryRetrievalService, RetrievedMemory
 from jarvis.memory.service import MemoryService
+from jarvis.news.service import NewsService
 from jarvis.repositories.service import RepositoryService
 from jarvis.research.service import ResearchService
 from jarvis.tools.router import ToolAction, ToolRouter
@@ -34,6 +36,10 @@ class ToolActivity:
     handoff_generated: bool = False
     research_saved: bool = False
     repository_retrieved: bool = False
+    news_provider_used: str | None = None
+    market_provider_used: str | None = None
+    research_fallback_used: bool = False
+    market_context: dict[str, object] | None = None
     memory_counts: dict[str, int] | None = None
     repository_context: dict[str, object] | None = None
     sources: list[str] | None = None
@@ -52,6 +58,8 @@ class UnifiedAssistant:
         self.memory = MemoryService(db)
         self.retrieval = MemoryRetrievalService(db)
         self.repositories = RepositoryService(db)
+        self.news = NewsService(db)
+        self.markets = MarketService(db)
         self.research = ResearchService(db)
         self.handoffs = HandoffService(db)
         self.router = ToolRouter()
@@ -111,6 +119,33 @@ class UnifiedAssistant:
                 )
             self.memory.add_message("assistant", response_text, conversation_id=user_record.conversation_id, project_id=project_id)
             return UnifiedAssistantResult(user_record.conversation_id, response_text, activity)
+
+        if route.uses(ToolAction.NEWS):
+            result = self.news.summarize_news(user_message, project_id=project_id, conversation_id=user_record.conversation_id)
+            activity = ToolActivity(
+                actions=[action.value for action in route.actions],
+                model=self.research.model if result.fallback_used else self.llm.model,
+                research_performed=result.fallback_used,
+                news_provider_used=result.provider,
+                research_fallback_used=result.fallback_used,
+                sources=result.sources,
+            )
+            self.memory.add_message("assistant", result.summary, conversation_id=user_record.conversation_id, project_id=project_id)
+            return UnifiedAssistantResult(user_record.conversation_id, result.summary, activity)
+
+        if route.uses(ToolAction.MARKET):
+            result = self.markets.summarize_market(user_message, project_id=project_id, conversation_id=user_record.conversation_id)
+            activity = ToolActivity(
+                actions=[action.value for action in route.actions],
+                model=self.research.model if result.fallback_used else self.llm.model,
+                research_performed=result.fallback_used,
+                market_provider_used=result.provider,
+                research_fallback_used=result.fallback_used,
+                market_context=self._market_context(result),
+                sources=result.sources,
+            )
+            self.memory.add_message("assistant", result.summary, conversation_id=user_record.conversation_id, project_id=project_id)
+            return UnifiedAssistantResult(user_record.conversation_id, result.summary, activity)
 
         retrieved = self.retrieval.retrieve(user_message, project_id=project_id) if route.uses(ToolAction.MEMORY_RETRIEVAL) else None
 
@@ -241,6 +276,18 @@ class UnifiedAssistant:
             "knowledge_items_used": confidence.knowledge_items_used,
             "last_indexed_at": confidence.last_indexed_at.isoformat() if confidence.last_indexed_at else None,
             "confidence": confidence.confidence,
+        }
+
+    def _market_context(self, result) -> dict[str, object] | None:
+        requested = list(getattr(result, "requested_symbols", []) or [])
+        returned = [quote.symbol for quote in getattr(result, "quotes", [])]
+        failed = [failure.symbol for failure in getattr(result, "failed_symbols", [])]
+        if not requested and not returned and not failed:
+            return None
+        return {
+            "requested_symbols": requested,
+            "returned_symbols": returned,
+            "failed_symbols": failed,
         }
 
     def _answer_guidance(self, user_message: str, retrieved: RetrievedMemory | None) -> str:

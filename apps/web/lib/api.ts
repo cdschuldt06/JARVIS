@@ -120,6 +120,10 @@ export type ToolActivity = {
   handoff_generated: boolean;
   research_saved: boolean;
   repository_retrieved: boolean;
+  news_provider_used: string | null;
+  market_provider_used: string | null;
+  research_fallback_used: boolean;
+  market_context: { requested_symbols: string[]; returned_symbols: string[]; failed_symbols: string[] } | null;
   memory_counts: { decisions: number; research: number; tasks: number; repositories?: number } | null;
   repository_context: { files_used: number; knowledge_items_used: number; last_indexed_at: string | null; confidence: string } | null;
   sources: string[] | null;
